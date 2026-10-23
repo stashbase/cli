@@ -1,11 +1,8 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    cmd::config::{OutputFormat, SecretsOutputFormat},
-    models::agent::AgentProfile,
-};
+use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -16,7 +13,16 @@ pub struct Config {
     pub profiles: Option<BTreeMap<String, ProfileConfig>>,
     pub expand_refs: Option<bool>,
     pub ouput_format: Option<OutputFormatConfig>,
-    pub agent_profiles: Option<HashMap<String, AgentProfile>>,
+    /// Removed: global agent profiles are files under `agents/` now (see
+    /// `config::get_global_agent_profile`). Kept only so a leftover table
+    /// gets a clear error instead of being ignored, and survives config
+    /// rewrites until the user moves it.
+    #[serde(
+        rename = "agent_profiles",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub removed_agent_profiles: Option<toml::Table>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -48,13 +54,13 @@ mod tests {
 
     #[test]
     fn parses_agent_profile_with_secret_host_allowlist() {
-        let config: Config = toml::from_str(
+        let parsed: AgentProfile = toml::from_str(
             r#"
-                [agent_profiles.coding.secrets]
+                [secrets]
                 project = "project"
                 environment = "development"
 
-                [agent_profiles.coding.secrets.GH_TOKEN]
+                [secrets.GH_TOKEN]
                 hosts = ["api.github.com"]
                 from = "GITHUB_TOKEN"
                 env = "GH_TOKEN"
@@ -65,7 +71,7 @@ mod tests {
         )
         .unwrap();
 
-        let profile = &config.agent_profiles.unwrap()["coding"];
+        let profile = &parsed;
         assert_eq!(profile.secrets.project.as_deref(), Some("project"));
         assert_eq!(
             profile.secrets.bindings["GH_TOKEN"].hosts,
@@ -109,6 +115,26 @@ mod tests {
     }
 
     #[test]
+    fn keeps_a_leftover_agent_profiles_table_so_it_is_reported_and_not_lost() {
+        let config: Config = toml::from_str(
+            r#"
+                api_key = "key"
+
+                [agent_profiles.coding]
+                egress_hosts = ["api.github.com"]
+            "#,
+        )
+        .unwrap();
+        let removed = config.removed_agent_profiles.as_ref().unwrap();
+        assert!(removed.contains_key("coding"));
+        let written = toml::to_string(&config).unwrap();
+        assert!(written.contains("[agent_profiles.coding]"), "{written}");
+        assert!(!toml::to_string(&Config::new())
+            .unwrap()
+            .contains("agent_profiles"));
+    }
+
+    #[test]
     fn parses_profile_metadata_without_api_keys() {
         let config: Config = toml::from_str(
             r#"
@@ -130,14 +156,14 @@ mod tests {
 
     #[test]
     fn parses_agent_profile_with_http_action_rules() {
-        let config: Config = toml::from_str(
+        let parsed: AgentProfile = toml::from_str(
             r#"
-                [agent_profiles.coding.secrets]
+                [secrets]
                 project = "project"
                 environment = "development"
 
-                [agent_profiles.coding.secrets.GH_TOKEN]
-                [[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+                [secrets.GH_TOKEN]
+                [[secrets.GH_TOKEN.rules]]
                 effect = "allow"
                 hosts = ["api.github.com"]
                 methods = ["get"]
@@ -146,7 +172,7 @@ mod tests {
         )
         .unwrap();
 
-        let rule = &config.agent_profiles.unwrap()["coding"].secrets.bindings["GH_TOKEN"].rules[0];
+        let rule = &parsed.secrets.bindings["GH_TOKEN"].rules[0];
         assert_eq!(rule.methods, ["get"]);
         assert_eq!(rule.paths, ["/repos/*"]);
     }
@@ -182,15 +208,15 @@ mod tests {
 
     #[test]
     fn parses_agent_profile_with_personal_credentials() {
-        let config: Config = toml::from_str(
+        let parsed: AgentProfile = toml::from_str(
             r#"
-                [agent_profiles.coding.secrets]
+                [secrets]
                 project = "project"
                 environment = "development"
 
-                [agent_profiles.coding.personal_credentials.LINEAR_API_KEY]
+                [personal_credentials.LINEAR_API_KEY]
                 env = "LINEAR_API_KEY"
-                [[agent_profiles.coding.personal_credentials.LINEAR_API_KEY.rules]]
+                [[personal_credentials.LINEAR_API_KEY.rules]]
                 effect = "allow"
                 hosts = ["mcp.linear.app"]
                 methods = ["GET", "POST"]
@@ -199,7 +225,7 @@ mod tests {
         )
         .unwrap();
 
-        let profile = &config.agent_profiles.unwrap()["coding"];
+        let profile = &parsed;
         assert!(profile.secrets.bindings.is_empty());
         assert_eq!(
             profile.personal_credentials["LINEAR_API_KEY"]
@@ -215,11 +241,10 @@ mod tests {
 
     #[test]
     fn parses_embedded_agent_policy_tests() {
-        let config: Config = toml::from_str(
+        let parsed: AgentProfile = toml::from_str(
             r#"
-                [agent_profiles.coding]
 
-                [[agent_profiles.coding.policy_tests]]
+                [[policy_tests]]
                 secret = "GH_TOKEN"
                 method = "GET"
                 host = "api.github.com"
@@ -229,26 +254,25 @@ mod tests {
         )
         .unwrap();
 
-        let test = &config.agent_profiles.unwrap()["coding"].policy_tests[0];
+        let test = &parsed.policy_tests[0];
         assert_eq!(test.secret, "GH_TOKEN");
         assert_eq!(test.expect.to_string(), "allow");
     }
 
     #[test]
     fn parses_agent_profile_with_local_file_source() {
-        let config: Config = toml::from_str(
+        let parsed: AgentProfile = toml::from_str(
             r#"
-                [agent_profiles.local]
                 file = "/tmp/agent.env"
                 egress_hosts = ["registry.npmjs.org"]
 
-                [agent_profiles.local.secrets.GH_TOKEN]
+                [secrets.GH_TOKEN]
                 hosts = ["api.github.com"]
             "#,
         )
         .unwrap();
 
-        let profile = &config.agent_profiles.unwrap()["local"];
+        let profile = &parsed;
         assert_eq!(profile.file.as_deref(), Some("/tmp/agent.env"));
         assert!(profile.secrets.project.is_none());
         assert_eq!(
@@ -303,7 +327,7 @@ impl Config {
             default_profile: None,
             profiles: None,
             ouput_format: None,
-            agent_profiles: None,
+            removed_agent_profiles: None,
             expand_refs: None,
         }
     }
@@ -314,14 +338,14 @@ impl Config {
                 && self.default_profile.is_none()
                 && self.profiles.is_none()
                 && self.expand_refs.is_none()
-                && self.agent_profiles.is_none()
+                && self.removed_agent_profiles.is_none()
         } else {
             self.api_key.is_none()
                 && self.ouput_format.is_none()
                 && self.default_profile.is_none()
                 && self.profiles.is_none()
                 && self.expand_refs.is_none()
-                && self.agent_profiles.is_none()
+                && self.removed_agent_profiles.is_none()
         }
     }
 }

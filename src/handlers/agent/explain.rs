@@ -17,7 +17,6 @@ use crate::{
         agent::validate::{ensure_profile_is_valid_for_run, uses_live_pattern_matching},
         run::{fs_rules::is_pattern_entry, subprocess::filesystem_backend_for_policy},
     },
-    models::config::Config,
     utils::output::get_formatted_json_string,
 };
 
@@ -25,7 +24,6 @@ use crate::{
 /// opens a network connection.
 pub fn handle_agent_explain_command(
     command: AgentExplainCommand,
-    profile_config: &Config,
     silent: bool,
     json: bool,
 ) -> Result<()> {
@@ -44,31 +42,12 @@ pub fn handle_agent_explain_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = profile_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
-    let (profile, source) = if let Some(profile) = explicit_profile {
-        (Some(profile.profile), profile.source)
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => (global_profile, "user-level config".to_owned()),
-            AgentProfileSource::Directory => {
-                match config::get_directory_agent_profile(&command.profile)? {
-                    Some(profile) => (Some(profile.profile), profile.source),
-                    None => (None, "directory config".to_owned()),
-                }
-            }
-            AgentProfileSource::Auto => {
-                let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-                if let Some(profile) = directory_profile {
-                    (Some(profile.profile), profile.source)
-                } else {
-                    (global_profile, "user-level config".to_owned())
-                }
-            }
-        }
+    let (profile, source) = match explicit_profile {
+        Some(profile) => (Some(profile.profile), profile.source),
+        None => match config::select_agent_profile(&command.profile, command.profile_source)? {
+            Some(selected) => (Some(selected.loaded.profile), selected.loaded.source),
+            None => (None, String::new()),
+        },
     };
     let Some(profile) = profile else {
         bail!(

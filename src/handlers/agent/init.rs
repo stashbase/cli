@@ -1,4 +1,4 @@
-//! Safe scaffolding for repository-local Agent Proxy profiles.
+//! Safe scaffolding for Agent Proxy profiles, repository-local or global.
 
 use std::{env, fs};
 
@@ -6,7 +6,10 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
 use crate::{
-    cmd::agent::AgentInitCommand, config::config::DIRECTORY_AGENT_PROFILES_DIR,
+    cmd::agent::AgentInitCommand,
+    config::config::{
+        display_global_path, global_agent_profiles_dir, DIRECTORY_AGENT_PROFILES_DIR,
+    },
     utils::output::get_formatted_json_string,
 };
 
@@ -64,9 +67,13 @@ pub fn handle_agent_init_command(
     json: bool,
 ) -> Result<()> {
     validate_profile_name(&command.profile)?;
-    let directory = env::current_dir()
-        .context("Could not determine the current directory for the agent profile.")?
-        .join(DIRECTORY_AGENT_PROFILES_DIR);
+    let directory = if command.global {
+        global_agent_profiles_dir()?
+    } else {
+        env::current_dir()
+            .context("Could not determine the current directory for the agent profile.")?
+            .join(DIRECTORY_AGENT_PROFILES_DIR)
+    };
     let path = directory.join(format!("{}.toml", command.profile));
     let existed = path.exists();
     if existed && !command.force {
@@ -87,7 +94,11 @@ pub fn handle_agent_init_command(
 
     let report = AgentInitReport {
         profile: command.profile,
-        path: display_path(&path),
+        path: if command.global {
+            display_global_path(&path)
+        } else {
+            display_path(&path)
+        },
         overwritten: existed,
     };
     if !silent {

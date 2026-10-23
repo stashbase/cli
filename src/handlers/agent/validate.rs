@@ -19,12 +19,9 @@ use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
     handlers::agent::env_check,
-    models::{
-        agent::{
-            AgentFieldCondition, AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile,
-            AgentScalar,
-        },
-        config::Config,
+    models::agent::{
+        AgentFieldCondition, AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile,
+        AgentScalar,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
@@ -53,7 +50,6 @@ struct Report {
 
 pub async fn handle_agent_validate_command(
     command: AgentValidateCommand,
-    global_config: &Config,
     json_format: bool,
 ) -> Result<bool> {
     let mut checks = Vec::new();
@@ -62,34 +58,21 @@ pub async fn handle_agent_validate_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = global_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
-    let (profile, directory_source) = if let Some(profile) = explicit_profile {
-        (Some(profile.profile), Some(profile.source))
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => (global_profile, None),
-            AgentProfileSource::Directory => {
-                let profile = config::get_directory_agent_profile(&command.profile)?;
-                let source = profile.as_ref().map(|profile| profile.source.clone());
-                (profile.map(|profile| profile.profile), source)
-            }
-            AgentProfileSource::Auto => {
-                let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-                let directory_source = directory_profile
-                    .as_ref()
-                    .map(|profile| profile.source.clone());
-                (
-                    directory_profile
-                        .map(|profile| profile.profile)
-                        .or(global_profile),
-                    directory_source,
-                )
-            }
-        }
+    let (profile, directory_source, global_source) = match explicit_profile {
+        Some(profile) => (Some(profile.profile), Some(profile.source), None),
+        None => match config::select_agent_profile(&command.profile, command.profile_source)? {
+            Some(selected) if selected.from_directory => (
+                Some(selected.loaded.profile),
+                Some(selected.loaded.source),
+                None,
+            ),
+            Some(selected) => (
+                Some(selected.loaded.profile),
+                None,
+                Some(selected.loaded.source),
+            ),
+            None => (None, None, None),
+        },
     };
     let directory_profile = directory_source.is_some();
 
@@ -110,7 +93,10 @@ pub async fn handle_agent_validate_command(
         if directory_profile {
             format!("Loaded from {}", directory_source.as_deref().unwrap())
         } else {
-            "Loaded from user-level config".to_owned()
+            format!(
+                "Loaded from {}",
+                global_source.as_deref().unwrap_or("the global config")
+            )
         },
     ));
     if directory_profile && matches!(command.profile_source, AgentProfileSource::Auto) {

@@ -117,7 +117,7 @@ This design keeps raw secrets out of the agent's process memory and environment 
 
 ### Profile Syntax and Configuration
 
-A profile is a TOML file at `.stashbase/agents/<name>.toml`. Use `stashbase agent init <name>` to generate a starter.
+A profile is a TOML file at `.stashbase/agents/<name>.toml` in a repository, or at `agents/<name>.toml` in the Stashbase config directory for a global profile you can use from any directory. Use `stashbase agent init <name>` (or `--global`) to generate a starter.
 
 #### Egress and credential hosts
 

@@ -15,10 +15,7 @@ use crate::{
         },
         agent::validate::ensure_profile_is_valid_for_run,
     },
-    models::{
-        agent::{AgentPolicyTestCase, AgentPolicyTestExpectation, AgentProfile},
-        config::Config,
-    },
+    models::agent::{AgentPolicyTestCase, AgentPolicyTestExpectation, AgentProfile},
     utils::output::get_formatted_json_string,
 };
 
@@ -28,11 +25,10 @@ const DEFAULT_TEST_FILE: &str = ".stashbase/agent-policy-tests.toml";
 /// a network connection. Returns true when at least one case fails.
 pub fn handle_agent_policy_test_command(
     command: AgentPolicyTestCommand,
-    profile_config: &Config,
     silent: bool,
     json: bool,
 ) -> Result<bool> {
-    let (profile, source) = load_profile(&command, profile_config)?;
+    let (profile, source) = load_profile(&command)?;
     ensure_profile_is_valid_for_run(&profile)?;
 
     let (tests, test_source) = test_cases_for_profile(&profile, command.test_file.as_deref())?;
@@ -145,35 +141,16 @@ fn default_test_file() -> PathBuf {
     PathBuf::from(DEFAULT_TEST_FILE)
 }
 
-fn load_profile(
-    command: &AgentPolicyTestCommand,
-    profile_config: &Config,
-) -> Result<(AgentProfile, String)> {
+fn load_profile(command: &AgentPolicyTestCommand) -> Result<(AgentProfile, String)> {
     let explicit_profile = command
         .policy_file
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = profile_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
-    let resolved = if let Some(profile) = explicit_profile {
-        Some((profile.profile, profile.source))
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => {
-                global_profile.map(|profile| (profile, "user-level config".to_owned()))
-            }
-            AgentProfileSource::Directory => config::get_directory_agent_profile(&command.profile)?
-                .map(|profile| (profile.profile, profile.source)),
-            AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
-                .map(|profile| (profile.profile, profile.source))
-                .or_else(|| {
-                    global_profile.map(|profile| (profile, "user-level config".to_owned()))
-                }),
-        }
+    let resolved = match explicit_profile {
+        Some(profile) => Some((profile.profile, profile.source)),
+        None => config::select_agent_profile(&command.profile, command.profile_source)?
+            .map(|selected| (selected.loaded.profile, selected.loaded.source)),
     };
     resolved.ok_or_else(|| {
         anyhow::anyhow!(
