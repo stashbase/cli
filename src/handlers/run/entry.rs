@@ -520,6 +520,7 @@ pub async fn handle_remote_agent_run(
     let sandbox_cpus = policy.sandbox_cpus.clone();
     let sandbox_isolated_paths = policy.sandbox_isolated_paths.clone();
     let worktree_request = policy.worktree_request();
+    crate::handlers::agent::validate::ensure_working_directory_is_safe_for_run()?;
     let extra_paths = prepare_extra_paths(
         &policy.workspace_extra_paths,
         worktree_request.is_some(),
@@ -1794,6 +1795,11 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.sandbox_isolated_paths.clone())
         .unwrap_or_default();
+    // Agent runs carry a policy; a plain `stashbase run` has none and keeps
+    // working from any directory, since nothing there is sandboxed.
+    if proxy_policy.is_some() {
+        crate::handlers::agent::validate::ensure_working_directory_is_safe_for_run()?;
+    }
     let extra_paths = prepare_extra_paths(
         proxy_policy
             .as_ref()

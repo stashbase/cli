@@ -848,6 +848,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         );
                     }
                     crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
+                    // Checked again where runs start (`handlers::run::entry`); here it
+                    // fails before any secrets are loaded.
                     crate::handlers::agent::validate::ensure_working_directory_is_safe_for_run()?;
                     if !loaded_from_directory {
                         crate::handlers::run::extra_paths::ensure_global_entries_are_anchored(
