@@ -29,6 +29,97 @@ const CREDENTIAL_DIRS: &[&str] = &[
     ".config/gcloud",
 ];
 
+/// The outcome of `resolve_extra_paths`: what to mount, and the entries
+/// (as written) skipped because the working directory already covers them.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ExtraPathResolution {
+    pub paths: Vec<ResolvedExtraPath>,
+    pub skipped: Vec<String>,
+}
+
+impl ExtraPathResolution {
+    /// One line for `agent validate`: what is mounted and what is skipped.
+    pub fn summary(&self) -> String {
+        let mounted = if self.paths.is_empty() {
+            "none mounted".to_owned()
+        } else {
+            self.paths
+                .iter()
+                .map(|extra| {
+                    format!(
+                        "{}{}",
+                        extra.path.display(),
+                        if extra.read_only { " (read-only)" } else { "" }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if self.skipped.is_empty() {
+            mounted
+        } else {
+            format!(
+                "{mounted}; skipped, already inside the working directory: {}",
+                self.skipped.join(", ")
+            )
+        }
+    }
+
+    /// Said at run start only when every entry was skipped: the profile
+    /// lists other folders, yet the run adds none, which usually means it
+    /// was started from a directory containing them all (e.g. ~/Projects).
+    pub fn all_skipped_note(&self) -> Option<String> {
+        (self.paths.is_empty() && !self.skipped.is_empty()).then(|| {
+            format!(
+                "Note: every [workspace] extra path is inside the working directory, so the agent sees all of {} instead: {}",
+                std::env::current_dir()
+                    .map(|cwd| cwd.display().to_string())
+                    .unwrap_or_else(|_| "it".to_owned()),
+                self.skipped.join(", ")
+            )
+        })
+    }
+}
+
+/// Refuses an agent run whose working directory hands the agent far more
+/// than a project: `/`, `$HOME` or an ancestor of it, or a credential
+/// directory. Both backends give the agent the working directory, so this
+/// applies whatever the profile says — and with global profiles an agent is
+/// easy to start from anywhere.
+pub fn ensure_working_directory_is_not_too_broad(
+    cwd: &Path,
+    home: Option<&Path>,
+) -> Result<(), String> {
+    let cwd = cwd
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve {}: {error}", cwd.display()))?;
+    let hint = "run the agent from a project directory, and list other folders under [workspace] extra_paths";
+    if cwd.parent().is_none() {
+        return Err(format!(
+            "the working directory is the filesystem root; {hint}"
+        ));
+    }
+    let Some(home) = home.and_then(|home| home.canonicalize().ok()) else {
+        return Ok(());
+    };
+    if home.starts_with(&cwd) {
+        return Err(format!(
+            "the working directory {} would expose your whole home directory; {hint}",
+            cwd.display()
+        ));
+    }
+    for dir in CREDENTIAL_DIRS {
+        let credentials = home.join(dir);
+        if cwd.starts_with(&credentials) {
+            return Err(format!(
+                "the working directory is inside the credential directory {}; {hint}",
+                credentials.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Resolves entries relative to `cwd` (the directory the run started in,
 /// never the worktree) and refuses anything too broad or sensitive to hand
 /// the agent: `/`, `$HOME` or an ancestor of it, credential directories,
@@ -39,12 +130,13 @@ pub fn resolve_extra_paths(
     entries: &[WorkspaceExtraPath],
     cwd: &Path,
     home: Option<&Path>,
-) -> Result<Vec<ResolvedExtraPath>, String> {
+) -> Result<ExtraPathResolution, String> {
     let cwd = cwd
         .canonicalize()
         .map_err(|error| format!("failed to resolve {}: {error}", cwd.display()))?;
     let home = home.and_then(|home| home.canonicalize().ok());
     let mut resolved: Vec<ResolvedExtraPath> = Vec::new();
+    let mut skipped = Vec::new();
     for entry in entries {
         let raw = entry.path();
         if raw.trim().is_empty() {
@@ -92,6 +184,7 @@ pub fn resolve_extra_paths(
                     cwd.display()
                 ));
             }
+            skipped.push(raw.to_owned());
             continue;
         }
         if cwd.starts_with(&path) {
@@ -114,7 +207,10 @@ pub fn resolve_extra_paths(
             read_only: entry.read_only(),
         });
     }
-    Ok(resolved)
+    Ok(ExtraPathResolution {
+        paths: resolved,
+        skipped,
+    })
 }
 
 /// `deny_write` entries that keep read-only extra paths read-only on the
@@ -225,6 +321,13 @@ mod tests {
             &self,
             entries: &[WorkspaceExtraPath],
         ) -> Result<Vec<ResolvedExtraPath>, String> {
+            self.resolution(entries).map(|resolution| resolution.paths)
+        }
+
+        fn resolution(
+            &self,
+            entries: &[WorkspaceExtraPath],
+        ) -> Result<ExtraPathResolution, String> {
             resolve_extra_paths(entries, &self.cwd(), Some(&self.home()))
         }
     }
@@ -343,6 +446,55 @@ mod tests {
             })])
             .unwrap_err();
         assert!(error.contains("deny_write"), "{error}");
+    }
+
+    #[test]
+    fn reports_skipped_entries() {
+        let fixture = Fixture::new("skipped");
+        let resolution = fixture
+            .resolution(&[bare("~/code/cli"), bare("../backend")])
+            .unwrap();
+        assert_eq!(resolution.skipped, vec!["~/code/cli".to_owned()]);
+        let summary = resolution.summary();
+        assert!(summary.contains("backend"), "{summary}");
+        assert!(
+            summary.contains("skipped, already inside the working directory: ~/code/cli"),
+            "{summary}"
+        );
+        assert!(
+            resolution.all_skipped_note().is_none(),
+            "something is still mounted"
+        );
+
+        let all_skipped = fixture.resolution(&[bare("."), bare("sub")]).unwrap();
+        assert!(
+            all_skipped.summary().starts_with("none mounted; skipped"),
+            "{}",
+            all_skipped.summary()
+        );
+        assert!(all_skipped.all_skipped_note().is_some());
+    }
+
+    #[test]
+    fn refuses_working_directories_that_expose_too_much() {
+        let fixture = Fixture::new("broad-cwd");
+        let home = fixture.home();
+        let check = |cwd: &Path| ensure_working_directory_is_not_too_broad(cwd, Some(&home));
+        assert!(check(&fixture.cwd()).is_ok());
+        assert!(
+            check(&home.join("code")).is_ok(),
+            "a folder of projects is a deliberate choice"
+        );
+        for (cwd, expected) in [
+            (PathBuf::from("/"), "filesystem root"),
+            (home.clone(), "whole home directory"),
+            (fixture.root.clone(), "whole home directory"),
+            (home.join(".ssh"), "credential directory"),
+        ] {
+            let error = check(&cwd).unwrap_err();
+            assert!(error.contains(expected), "{}: {error}", cwd.display());
+            assert!(error.contains("extra_paths"), "{error}");
+        }
     }
 
     #[test]

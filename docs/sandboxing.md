@@ -260,7 +260,8 @@ extra_paths = ["../backend", { path = "../docs", read_only = true }]
   extra_paths = ["~/Projects/cli", "~/Projects/backend-monorepo"]
   ```
 
-  Use `~/` or absolute paths in global profiles: relative ones resolve from wherever you start the run. A `read_only` entry inside the working directory is refused instead of skipped; use `[filesystem] deny_write` for that.
+  Use `~/` or absolute paths in global profiles: relative ones resolve from wherever you start the run. A `read_only` entry inside the working directory is refused instead of skipped; use `[filesystem] deny_write` for that. `stashbase agent validate` lists skipped entries, and a run says so when every entry was skipped (for example when started from `~/Projects`, where the agent then sees that whole folder).
+- Whatever the profile says, stashbase refuses to start an agent from `/`, your home directory (or a parent of it) or a credential directory. Both backends give the agent the working directory, so it would get everything there, credentials included. Run from a project directory, and list other folders under `extra_paths`.
 - A worktree (`worktree = true`) covers only the current repo. Extra folders are mounted as they are, so the agent's edits there land directly in those checkouts. The run prints a note when you combine the two.
 - Limits on the Docker backend:
   - Docker Desktop can only mount folders it shares with its VM (by default `/Users`, `/Volumes`, `/private`, `/tmp` and `/var/folders` on macOS). A folder elsewhere fails with Docker's own mount error; add it under Docker Desktop → Settings → Resources → File sharing.

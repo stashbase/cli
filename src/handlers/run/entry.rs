@@ -314,14 +314,19 @@ fn prepare_extra_paths(
         return Ok(Vec::new());
     }
     let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
-    let resolved = super::extra_paths::resolve_extra_paths(
+    let resolution = super::extra_paths::resolve_extra_paths(
         entries,
         &std::env::current_dir()?,
         home.as_deref(),
     )
     .map_err(anyhow::Error::msg)?;
+    let resolved = resolution.paths.clone();
     denied_write_paths.extend(super::extra_paths::read_only_deny_entries(&resolved));
-    if let Some(note) = super::extra_paths::worktree_note(worktree, &resolved) {
+    let notes = [
+        resolution.all_skipped_note(),
+        super::extra_paths::worktree_note(worktree, &resolved),
+    ];
+    for note in notes.into_iter().flatten() {
         if !silent {
             eprintln!("{note}");
         }
