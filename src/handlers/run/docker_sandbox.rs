@@ -3520,6 +3520,40 @@ mod tests {
         assert!(cwd_at < isolated_at);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn docker_run_command_refuses_windows_extra_paths() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let error = docker_run_command(
+            "claude",
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+            &[super::super::extra_paths::ResolvedExtraPath {
+                path: std::env::temp_dir(),
+                read_only: false,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("refusing to mount workspace extra path"),
+            "{error}"
+        );
+    }
+
+    // Docker can't mount Windows paths (see `append_extra_path_mounts`).
+    #[cfg(unix)]
     #[test]
     fn docker_run_command_mounts_workspace_extra_paths_at_their_host_paths() {
         let root = std::env::temp_dir().join(format!(
@@ -3594,6 +3628,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    // Docker can't mount Windows paths (see `append_extra_path_mounts`).
+    #[cfg(unix)]
     #[test]
     fn docker_run_command_mounts_a_linked_worktree_extra_path_with_its_repository() {
         let root = std::env::temp_dir().canonicalize().unwrap().join(format!(

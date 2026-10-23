@@ -566,9 +566,9 @@ mod tests {
 
     #[test]
     fn global_profiles_need_anchored_extra_paths() {
+        let absolute = std::env::temp_dir().to_string_lossy().into_owned();
         assert!(
-            ensure_global_entries_are_anchored(&[bare("~/code/backend"), bare("/srv/docs")])
-                .is_ok()
+            ensure_global_entries_are_anchored(&[bare("~/code/backend"), bare(&absolute)]).is_ok()
         );
         let error = ensure_global_entries_are_anchored(&[
             bare("~/code/backend"),
