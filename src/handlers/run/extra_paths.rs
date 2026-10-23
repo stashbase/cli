@@ -121,19 +121,54 @@ pub fn worktree_note(worktree: bool, extra_paths: &[ResolvedExtraPath]) -> Optio
     })
 }
 
-/// Docker backend: a linked worktree's `.git` is a file pointing into its
-/// main repository, which the container doesn't see, so git breaks there.
-pub fn docker_git_worktree_notes(extra_paths: &[ResolvedExtraPath]) -> Vec<String> {
-    extra_paths
-        .iter()
-        .filter(|extra| extra.path.join(".git").is_file())
-        .map(|extra| {
-            format!(
-                "Note: {} is a git worktree; git commands inside the sandbox won't work there because its main repository isn't mounted.",
-                extra.path.display()
-            )
-        })
-        .collect()
+/// Docker backend: git dirs the agent can write to (writable extra repos'
+/// `.git`, linked worktrees' common dirs, the run's own common dir) whose
+/// `commondir` it must not plant. Git reads that file from any git dir and
+/// takes the config — `core.fsmonitor`, `core.hooksPath` — of whatever dir
+/// it names, so a planted one would make host git run agent code. A
+/// read-only mount can't cover a file that doesn't exist yet (Docker would
+/// create it on the host), so this snapshots which dirs have none before
+/// the run and removes any that appear by the end.
+pub struct GitDirWatch {
+    without_commondir: Vec<PathBuf>,
+}
+
+impl GitDirWatch {
+    pub fn new(git_dirs: Vec<PathBuf>) -> Self {
+        let without_commondir = git_dirs
+            .into_iter()
+            .filter(|dir| std::fs::symlink_metadata(dir.join("commondir")).is_err())
+            .collect();
+        Self { without_commondir }
+    }
+
+    /// Removes each `commondir` created during the run; returns a warning
+    /// per removal (or failure to remove).
+    pub fn remove_new_commondirs(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for dir in &self.without_commondir {
+            let commondir = dir.join("commondir");
+            let Ok(meta) = std::fs::symlink_metadata(&commondir) else {
+                continue;
+            };
+            let removed = if meta.is_dir() {
+                std::fs::remove_dir_all(&commondir)
+            } else {
+                std::fs::remove_file(&commondir)
+            };
+            warnings.push(match removed {
+                Ok(()) => format!(
+                    "Warning: removed {} created during the run; it would have redirected git to another repository's config.",
+                    commondir.display()
+                ),
+                Err(error) => format!(
+                    "Warning: {} was created during the run and could not be removed ({error}); delete it before running git there.",
+                    commondir.display()
+                ),
+            });
+        }
+        warnings
+    }
 }
 
 #[cfg(test)]
@@ -280,23 +315,22 @@ mod tests {
     }
 
     #[test]
-    fn notes_extra_paths_that_are_linked_git_worktrees() {
-        let fixture = Fixture::new("git-worktree");
-        let backend = fixture.home().join("code/backend");
-        let docs = fixture.home().join("code/docs");
-        std::fs::write(
-            backend.join(".git"),
-            "gitdir: /elsewhere/.git/worktrees/x\n",
-        )
-        .unwrap();
-        std::fs::create_dir_all(docs.join(".git")).unwrap();
-        let notes =
-            docker_git_worktree_notes(&[resolved(backend.clone(), false), resolved(docs, false)]);
-        assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(
-            notes[0].contains(&backend.display().to_string()),
-            "{}",
-            notes[0]
-        );
+    fn git_dir_watch_removes_only_commondirs_created_during_the_run() {
+        let fixture = Fixture::new("commondir");
+        let fresh = fixture.home().join("code/backend/.git");
+        let existing = fixture.home().join("code/docs/.git");
+        std::fs::create_dir_all(&fresh).unwrap();
+        std::fs::create_dir_all(&existing).unwrap();
+        std::fs::write(existing.join("commondir"), "../main/.git\n").unwrap();
+
+        let watch = GitDirWatch::new(vec![fresh.clone(), existing.clone()]);
+        assert!(watch.remove_new_commondirs().is_empty());
+
+        std::fs::write(fresh.join("commondir"), "/tmp/evil\n").unwrap();
+        let warnings = watch.remove_new_commondirs();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("removed"), "{}", warnings[0]);
+        assert!(!fresh.join("commondir").exists());
+        assert!(existing.join("commondir").exists(), "pre-existing one kept");
     }
 }

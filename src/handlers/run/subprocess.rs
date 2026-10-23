@@ -168,9 +168,21 @@ pub async fn run_command_with_filesystem_policy_and_network(
                 );
             }
         }
-        for note in super::extra_paths::docker_git_worktree_notes(extra_paths) {
-            eprintln!("{note}");
+        let mut git_dirs: Vec<PathBuf> = git_mounts
+            .map(|mounts| mounts.common_dir.clone())
+            .into_iter()
+            .collect();
+        for extra in extra_paths.iter().filter(|extra| !extra.read_only) {
+            let git = extra.path.join(".git");
+            if git.is_dir() {
+                git_dirs.push(git);
+            } else if let Ok(Some(mounts)) =
+                super::docker_sandbox::linked_worktree_git_mounts(&extra.path)
+            {
+                git_dirs.push(mounts.common_dir);
+            }
         }
+        let git_dir_watch = super::extra_paths::GitDirWatch::new(git_dirs);
         let (program, launcher_args) = super::docker_sandbox::docker_run_command(
             command,
             network,
@@ -195,7 +207,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
         if let Some(agent) = herdr_agent_hint(command, &env_vars, |key| env::var(key).ok()) {
             env_vars.insert("HERDR_AGENT".to_owned(), agent);
         }
-        return run_built_command(
+        let result = run_built_command(
             program,
             launcher_args,
             args,
@@ -209,6 +221,10 @@ pub async fn run_command_with_filesystem_policy_and_network(
             current_dir,
         )
         .await;
+        for warning in git_dir_watch.remove_new_commondirs() {
+            eprintln!("{warning}");
+        }
+        return result;
     }
 
     #[cfg(target_os = "macos")]

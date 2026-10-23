@@ -248,7 +248,9 @@ By default the Docker backend mounts only the directory you start the run from. 
 extra_paths = ["../backend", { path = "../docs", read_only = true }]
 ```
 
-- **Docker backend**: each folder is mounted at the same absolute path as on the host, read-write or `:ro`. In a writable git repo, `.git/config`, `.git/hooks/` and `.git/modules/` are mounted read-only, so the agent can commit but can't plant anything your own `git` would later execute. `deny_read`/`deny_write` rules apply inside the extra folders too.
+- **Docker backend**: each folder is mounted at the same absolute path as on the host, read-write or `:ro`. Git works in them, and the agent can't plant anything your own `git` would later execute:
+  - In a writable repo, `.git/config`, `.git/hooks/`, `.git/modules/` and `.git/config.worktree` are mounted read-only. If the agent creates a `.git/commondir` (which would point your `git` at another repository's config), stashbase removes it when the run ends and prints a warning.
+  - If an extra folder is itself a git worktree, its repository's `.git` directory is mounted too, with the same protections as a [worktree](#worktrees) run. The worktree's own `.git` file and git pointer files are read-only. `deny_read`/`deny_write` rules apply inside the extra folders too.
 - **Native backend**: the agent can already reach these folders, because the filesystem policy is a deny-list. A `read_only` entry is added to the run's `deny_write`.
 - stashbase refuses `/`, your home directory or any parent of it, credential directories (`~/.ssh`, `~/.aws`, `~/.config/stashbase`, …), folders that overlap the working directory or each other, and paths that don't exist. `stashbase agent validate` reports these.
 - A worktree (`worktree = true`) covers only the current repo. Extra folders are mounted as they are, so the agent's edits there land directly in those checkouts. The run prints a note when you combine the two.
