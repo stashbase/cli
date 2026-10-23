@@ -849,6 +849,12 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                     crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
                     crate::handlers::agent::validate::ensure_working_directory_is_safe_for_run()?;
+                    if !loaded_from_directory {
+                        crate::handlers::run::extra_paths::ensure_global_entries_are_anchored(
+                            &profile.workspace.extra_paths,
+                        )
+                        .map_err(|error| anyhow::anyhow!("Agent profile is invalid:\n- Workspace extra paths: {error}"))?;
+                    }
                     crate::handlers::agent::env_check::confirm_config_env(&profile, silent)?;
                     crate::handlers::agent::env_check::warn_inherited_env(&profile, &agent_run.profile, silent);
                     // Egress policy is meaningful only when the child cannot opt out of

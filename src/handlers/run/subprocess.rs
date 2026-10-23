@@ -182,7 +182,10 @@ pub async fn run_command_with_filesystem_policy_and_network(
                 git_dirs.push(mounts.common_dir);
             }
         }
-        let git_dir_watch = super::extra_paths::GitDirWatch::new(git_dirs);
+        let (git_dir_watch, warnings) = super::extra_paths::GitDirWatch::start(git_dirs);
+        for warning in warnings {
+            eprintln!("{warning}");
+        }
         let (program, launcher_args) = super::docker_sandbox::docker_run_command(
             command,
             network,

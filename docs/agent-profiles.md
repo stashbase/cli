@@ -107,7 +107,7 @@ Give the agent other local folders to work on next to the current repo, e.g. a b
 extra_paths = ["../backend", { path = "../docs", read_only = true }]
 ```
 
-Paths are relative to the directory you start the run from (`~/` works too). Entries are read-write unless marked `read_only`. An entry that is the directory you run from is skipped, so a global profile can list a whole set of repos (with `~/` paths) and be used from any of them. See **[Extra folders](sandboxing.md#extra-folders)** for how each backend handles them.
+Paths are relative to the directory you start the run from (`~/` works too). Entries are read-write unless marked `read_only`. An entry that is the directory you run from is skipped, so a global profile can list a whole set of repos and be used from any of them. Global profiles must use `~/` or absolute paths. See **[Extra folders](sandboxing.md#extra-folders)** for how each backend handles them.
 
 ## Config Environment Variables
 

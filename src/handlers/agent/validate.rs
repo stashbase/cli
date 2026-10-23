@@ -127,6 +127,13 @@ pub async fn handle_agent_validate_command(
     checks.extend(inherited_env_exposure(&profile, std::env::vars()));
     checks.extend(validate_runtime_requirements(&profile));
     checks.push(validate_working_directory());
+    if !directory_profile {
+        if let Err(error) = crate::handlers::run::extra_paths::ensure_global_entries_are_anchored(
+            &profile.workspace.extra_paths,
+        ) {
+            checks.push(fail("Workspace extra paths", error));
+        }
+    }
     if command.remote {
         checks.extend(validate_remote_profile(&profile));
     }

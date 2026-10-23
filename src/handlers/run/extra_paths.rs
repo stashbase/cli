@@ -17,17 +17,66 @@ pub struct ResolvedExtraPath {
     pub read_only: bool,
 }
 
-/// Directories under `$HOME` that hold credentials; never mountable, nor
-/// anything containing or inside them.
+/// Directories under `$HOME` that hold credentials or other apps' private
+/// data; never mountable, nor anything containing or inside them. A safety
+/// net for obvious mistakes, not a complete boundary: anything not listed
+/// here is still the profile author's call.
 const CREDENTIAL_DIRS: &[&str] = &[
     ".ssh",
     ".aws",
+    ".azure",
     ".gnupg",
     ".docker",
     ".kube",
+    ".password-store",
     ".config/stashbase",
     ".config/gcloud",
+    ".config/gh",
+    // macOS: keychains, app data (stashbase's own config lives in
+    // `Application Support`), browser profiles.
+    "Library",
 ];
+
+/// `CREDENTIAL_DIRS` under `home`, plus stashbase's own config and data
+/// directories wherever the platform puts them (they hold the API key and
+/// audit logs), canonicalized where they exist so they compare with
+/// canonical paths.
+fn credential_dirs(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs = home
+        .map(|home| {
+            CREDENTIAL_DIRS
+                .iter()
+                .map(|dir| home.join(dir))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(project) = directories::ProjectDirs::from("", "", "stashbase") {
+        dirs.push(project.config_dir().to_path_buf());
+        dirs.push(project.data_dir().to_path_buf());
+    }
+    dirs.into_iter()
+        .map(|dir| dir.canonicalize().unwrap_or(dir))
+        .collect()
+}
+
+/// A global profile is used from any directory, so a relative entry would
+/// name a different folder in each; only `~/` and absolute paths are
+/// allowed there. Directory profiles load from the repo they live in, so
+/// relative entries are fine.
+pub fn ensure_global_entries_are_anchored(entries: &[WorkspaceExtraPath]) -> Result<(), String> {
+    let relative = entries
+        .iter()
+        .map(WorkspaceExtraPath::path)
+        .filter(|path| !path.starts_with("~/") && !Path::new(path).is_absolute())
+        .collect::<Vec<_>>();
+    if relative.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "relative workspace extra paths can't be used in a global profile, since they'd resolve from wherever the run starts: {}; use ~/ or absolute paths",
+        relative.join(", ")
+    ))
+}
 
 /// The outcome of `resolve_extra_paths`: what to mount, and the entries
 /// (as written) skipped because the working directory already covers them.
@@ -108,8 +157,7 @@ pub fn ensure_working_directory_is_not_too_broad(
             cwd.display()
         ));
     }
-    for dir in CREDENTIAL_DIRS {
-        let credentials = home.join(dir);
+    for credentials in credential_dirs(Some(&home)) {
         if cwd.starts_with(&credentials) {
             return Err(format!(
                 "the working directory is inside the credential directory {}; {hint}",
@@ -164,14 +212,13 @@ pub fn resolve_extra_paths(
                     "workspace extra path '{raw}' would expose your whole home directory"
                 ));
             }
-            for dir in CREDENTIAL_DIRS {
-                let credentials = home.join(dir);
-                if path.starts_with(&credentials) || credentials.starts_with(&path) {
-                    return Err(format!(
-                        "workspace extra path '{raw}' overlaps the credential directory {}",
-                        credentials.display()
-                    ));
-                }
+        }
+        for credentials in credential_dirs(home.as_deref()) {
+            if path.starts_with(&credentials) || credentials.starts_with(&path) {
+                return Err(format!(
+                    "workspace extra path '{raw}' overlaps the credential directory {}",
+                    credentials.display()
+                ));
             }
         }
         if path.starts_with(&cwd) {
@@ -232,31 +279,38 @@ pub fn worktree_note(worktree: bool, extra_paths: &[ResolvedExtraPath]) -> Optio
 }
 
 /// Docker backend: git dirs the agent can write to (writable extra repos'
-/// `.git`, linked worktrees' common dirs, the run's own common dir) whose
-/// `commondir` it must not plant. Git reads that file from any git dir and
-/// takes the config — `core.fsmonitor`, `core.hooksPath` — of whatever dir
-/// it names, so a planted one would make host git run agent code. A
+/// `.git`, linked worktrees' common dirs, the run's own common dir) where
+/// it must not plant a `commondir`. Git reads that file from any git dir
+/// and takes the config — `core.fsmonitor`, `core.hooksPath` — of whatever
+/// dir it names, so a planted one would make host git run agent code. A
 /// read-only mount can't cover a file that doesn't exist yet (Docker would
-/// create it on the host), so this snapshots which dirs have none before
-/// the run and removes any that appear by the end.
+/// create it on the host), so it's removed instead: at the end of the run,
+/// and at the start of the next one in case a run was killed before its
+/// cleanup. None of these dirs legitimately has one — only a worktree's
+/// admin dir (`worktrees/<name>/`) does.
 pub struct GitDirWatch {
-    without_commondir: Vec<PathBuf>,
+    git_dirs: Vec<PathBuf>,
 }
 
 impl GitDirWatch {
-    pub fn new(git_dirs: Vec<PathBuf>) -> Self {
-        let without_commondir = git_dirs
-            .into_iter()
-            .filter(|dir| std::fs::symlink_metadata(dir.join("commondir")).is_err())
-            .collect();
-        Self { without_commondir }
+    /// Removes any `commondir` already present (left by a killed run) and
+    /// returns a warning per removal.
+    pub fn start(git_dirs: Vec<PathBuf>) -> (Self, Vec<String>) {
+        let watch = Self { git_dirs };
+        let warnings = watch
+            .remove_commondirs("found before the run (left by an earlier run that was killed?)");
+        (watch, warnings)
     }
 
     /// Removes each `commondir` created during the run; returns a warning
     /// per removal (or failure to remove).
     pub fn remove_new_commondirs(&self) -> Vec<String> {
+        self.remove_commondirs("created during the run")
+    }
+
+    fn remove_commondirs(&self, when: &str) -> Vec<String> {
         let mut warnings = Vec::new();
-        for dir in &self.without_commondir {
+        for dir in &self.git_dirs {
             let commondir = dir.join("commondir");
             let Ok(meta) = std::fs::symlink_metadata(&commondir) else {
                 continue;
@@ -268,11 +322,11 @@ impl GitDirWatch {
             };
             warnings.push(match removed {
                 Ok(()) => format!(
-                    "Warning: removed {} created during the run; it would have redirected git to another repository's config.",
+                    "Warning: removed {}, {when}; it would have redirected git to another repository's config.",
                     commondir.display()
                 ),
                 Err(error) => format!(
-                    "Warning: {} was created during the run and could not be removed ({error}); delete it before running git there.",
+                    "Warning: {} was {when} and could not be removed ({error}); delete it before running git there.",
                     commondir.display()
                 ),
             });
@@ -498,6 +552,34 @@ mod tests {
     }
 
     #[test]
+    fn credential_dirs_cover_stashbase_and_macos_app_data() {
+        let home = PathBuf::from("/nonexistent-home");
+        let dirs = credential_dirs(Some(&home));
+        assert!(dirs.contains(&home.join("Library")));
+        assert!(dirs.contains(&home.join(".config/gh")));
+        if let Some(project) = directories::ProjectDirs::from("", "", "stashbase") {
+            let config = project.config_dir().to_path_buf();
+            let config = config.canonicalize().unwrap_or(config);
+            assert!(dirs.contains(&config), "{dirs:?}");
+        }
+    }
+
+    #[test]
+    fn global_profiles_need_anchored_extra_paths() {
+        assert!(
+            ensure_global_entries_are_anchored(&[bare("~/code/backend"), bare("/srv/docs")])
+                .is_ok()
+        );
+        let error = ensure_global_entries_are_anchored(&[
+            bare("~/code/backend"),
+            bare("../docs"),
+            bare("docs"),
+        ])
+        .unwrap_err();
+        assert!(error.contains("../docs, docs"), "{error}");
+    }
+
+    #[test]
     fn worktree_note_only_when_a_worktree_has_extra_paths() {
         let extra = [resolved(PathBuf::from("/srv/backend"), false)];
         assert!(worktree_note(true, &extra).is_some());
@@ -506,22 +588,24 @@ mod tests {
     }
 
     #[test]
-    fn git_dir_watch_removes_only_commondirs_created_during_the_run() {
+    fn git_dir_watch_removes_commondirs_left_before_and_planted_during_the_run() {
         let fixture = Fixture::new("commondir");
-        let fresh = fixture.home().join("code/backend/.git");
-        let existing = fixture.home().join("code/docs/.git");
-        std::fs::create_dir_all(&fresh).unwrap();
-        std::fs::create_dir_all(&existing).unwrap();
-        std::fs::write(existing.join("commondir"), "../main/.git\n").unwrap();
+        let clean = fixture.home().join("code/backend/.git");
+        let stale = fixture.home().join("code/docs/.git");
+        std::fs::create_dir_all(&clean).unwrap();
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("commondir"), "/tmp/evil\n").unwrap();
 
-        let watch = GitDirWatch::new(vec![fresh.clone(), existing.clone()]);
+        let (watch, warnings) = GitDirWatch::start(vec![clean.clone(), stale.clone()]);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("before the run"), "{}", warnings[0]);
+        assert!(!stale.join("commondir").exists());
         assert!(watch.remove_new_commondirs().is_empty());
 
-        std::fs::write(fresh.join("commondir"), "/tmp/evil\n").unwrap();
+        std::fs::write(clean.join("commondir"), "/tmp/evil\n").unwrap();
         let warnings = watch.remove_new_commondirs();
         assert_eq!(warnings.len(), 1, "{warnings:?}");
-        assert!(warnings[0].contains("removed"), "{}", warnings[0]);
-        assert!(!fresh.join("commondir").exists());
-        assert!(existing.join("commondir").exists(), "pre-existing one kept");
+        assert!(warnings[0].contains("during the run"), "{}", warnings[0]);
+        assert!(!clean.join("commondir").exists());
     }
 }
