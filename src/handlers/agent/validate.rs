@@ -58,32 +58,21 @@ pub async fn handle_agent_validate_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = config::get_global_agent_profile(&command.profile)?;
-    let global_source = global_profile.as_ref().map(|loaded| loaded.source.clone());
-    let global_profile = global_profile.map(|loaded| loaded.profile);
-    let (profile, directory_source) = if let Some(profile) = explicit_profile {
-        (Some(profile.profile), Some(profile.source))
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => (global_profile, None),
-            AgentProfileSource::Directory => {
-                let profile = config::get_directory_agent_profile(&command.profile)?;
-                let source = profile.as_ref().map(|profile| profile.source.clone());
-                (profile.map(|profile| profile.profile), source)
-            }
-            AgentProfileSource::Auto => {
-                let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-                let directory_source = directory_profile
-                    .as_ref()
-                    .map(|profile| profile.source.clone());
-                (
-                    directory_profile
-                        .map(|profile| profile.profile)
-                        .or(global_profile),
-                    directory_source,
-                )
-            }
-        }
+    let (profile, directory_source, global_source) = match explicit_profile {
+        Some(profile) => (Some(profile.profile), Some(profile.source), None),
+        None => match config::select_agent_profile(&command.profile, command.profile_source)? {
+            Some(selected) if selected.from_directory => (
+                Some(selected.loaded.profile),
+                Some(selected.loaded.source),
+                None,
+            ),
+            Some(selected) => (
+                Some(selected.loaded.profile),
+                None,
+                Some(selected.loaded.source),
+            ),
+            None => (None, None, None),
+        },
     };
     let directory_profile = directory_source.is_some();
 

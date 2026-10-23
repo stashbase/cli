@@ -42,34 +42,12 @@ pub fn handle_agent_explain_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = config::get_global_agent_profile(&command.profile)?
-        .map(|loaded| (loaded.profile, loaded.source));
-    let (profile, source) = if let Some(profile) = explicit_profile {
-        (Some(profile.profile), profile.source)
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => match global_profile {
-                Some((profile, source)) => (Some(profile), source),
-                None => (None, "global config".to_owned()),
-            },
-            AgentProfileSource::Directory => {
-                match config::get_directory_agent_profile(&command.profile)? {
-                    Some(profile) => (Some(profile.profile), profile.source),
-                    None => (None, "directory config".to_owned()),
-                }
-            }
-            AgentProfileSource::Auto => {
-                let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-                if let Some(profile) = directory_profile {
-                    (Some(profile.profile), profile.source)
-                } else {
-                    match global_profile {
-                        Some((profile, source)) => (Some(profile), source),
-                        None => (None, "global config".to_owned()),
-                    }
-                }
-            }
-        }
+    let (profile, source) = match explicit_profile {
+        Some(profile) => (Some(profile.profile), profile.source),
+        None => match config::select_agent_profile(&command.profile, command.profile_source)? {
+            Some(selected) => (Some(selected.loaded.profile), selected.loaded.source),
+            None => (None, String::new()),
+        },
     };
     let Some(profile) = profile else {
         bail!(

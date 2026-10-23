@@ -268,6 +268,57 @@ fn get_directory_agent_profile_from_dir(
     )
 }
 
+/// A profile picked by `select_agent_profile`, and whether it came from the
+/// repository (`.stashbase/agents`) rather than the global profiles.
+#[derive(Debug, Clone)]
+pub struct SelectedAgentProfile {
+    pub loaded: LoadedAgentProfile,
+    pub from_directory: bool,
+}
+
+/// Picks a profile the way `--profile-source` says: `directory` and
+/// `global` read only their own location; `auto` prefers the repository
+/// profile and reads the global ones only when there is none. So a broken
+/// or leftover global config never affects a run that doesn't use it.
+pub fn select_agent_profile(
+    profile_name: &str,
+    source: crate::cmd::agent::AgentProfileSource,
+) -> Result<Option<SelectedAgentProfile>> {
+    let directory = || {
+        get_directory_agent_profile(profile_name).map(|loaded| {
+            loaded.map(|loaded| SelectedAgentProfile {
+                loaded,
+                from_directory: true,
+            })
+        })
+    };
+    let global = || {
+        get_global_agent_profile(profile_name).map(|loaded| {
+            loaded.map(|loaded| SelectedAgentProfile {
+                loaded,
+                from_directory: false,
+            })
+        })
+    };
+    select_by_source(source, directory, global)
+}
+
+fn select_by_source<T>(
+    source: crate::cmd::agent::AgentProfileSource,
+    directory: impl FnOnce() -> Result<Option<T>>,
+    global: impl FnOnce() -> Result<Option<T>>,
+) -> Result<Option<T>> {
+    use crate::cmd::agent::AgentProfileSource;
+    match source {
+        AgentProfileSource::Directory => directory(),
+        AgentProfileSource::Global => global(),
+        AgentProfileSource::Auto => match directory()? {
+            Some(selected) => Ok(Some(selected)),
+            None => global(),
+        },
+    }
+}
+
 /// The directory holding global profiles. Not created here: a missing
 /// directory just means there are no global profiles.
 pub fn global_agent_profiles_dir() -> Result<PathBuf> {
@@ -487,7 +538,7 @@ mod tests {
         display_global_path, get_directory_agent_profile_from_dir,
         get_directory_agent_profiles_from_dir, get_explicit_agent_profile, load_agent_profile_in,
         load_agent_profiles_in, removed_global_profiles_error, resolve_profile_name,
-        DEFAULT_PROFILE, DIRECTORY_AGENT_PROFILES_DIR,
+        select_by_source, DEFAULT_PROFILE, DIRECTORY_AGENT_PROFILES_DIR,
     };
     use crate::models::config::{Config, ProfileConfig};
 
@@ -621,6 +672,52 @@ mod tests {
         );
         assert!(error.contains("broken.toml"), "{error}");
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn profile_source_reads_only_the_locations_it_needs() {
+        use crate::cmd::agent::AgentProfileSource;
+        let broken_global =
+            || -> anyhow::Result<Option<&str>> { anyhow::bail!("global config is broken") };
+        let no_global =
+            || -> anyhow::Result<Option<&str>> { panic!("global profiles must not be read") };
+
+        // directory: a broken or leftover global config doesn't matter.
+        assert_eq!(
+            select_by_source(
+                AgentProfileSource::Directory,
+                || Ok(Some("repo")),
+                broken_global
+            )
+            .unwrap(),
+            Some("repo")
+        );
+        assert_eq!(
+            select_by_source(AgentProfileSource::Directory, || Ok(None), no_global).unwrap(),
+            None
+        );
+        // auto: the repository profile wins without reading the global ones.
+        assert_eq!(
+            select_by_source(AgentProfileSource::Auto, || Ok(Some("repo")), no_global).unwrap(),
+            Some("repo")
+        );
+        assert_eq!(
+            select_by_source(AgentProfileSource::Auto, || Ok(None), || Ok(Some("global"))).unwrap(),
+            Some("global")
+        );
+        assert!(select_by_source(AgentProfileSource::Auto, || Ok(None), broken_global).is_err());
+        // global: the repository is never consulted.
+        assert_eq!(
+            select_by_source(
+                AgentProfileSource::Global,
+                || -> anyhow::Result<Option<&str>> {
+                    panic!("repository profiles must not be read")
+                },
+                || Ok(Some("global"))
+            )
+            .unwrap(),
+            Some("global")
+        );
     }
 
     #[test]

@@ -81,12 +81,11 @@ pub async fn handle_agent_mcp_tools_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global = config::get_global_agent_profile(&command.profile)?.map(|loaded| loaded.profile);
-    let profile = if let Some(profile) = explicit {
-        profile.profile
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => global.ok_or_else(|| {
+    let profile = match explicit {
+        Some(profile) => profile.profile,
+        None => config::select_agent_profile(&command.profile, command.profile_source)?
+            .map(|selected| selected.loaded.profile)
+            .ok_or_else(|| {
                 profile_not_found_error_with_output(
                     &command.profile,
                     source_label(command.profile_source),
@@ -94,30 +93,6 @@ pub async fn handle_agent_mcp_tools_command(
                     silent,
                 )
             })?,
-            AgentProfileSource::Directory => {
-                config::get_directory_agent_profile(&command.profile)?
-                    .ok_or_else(|| {
-                        profile_not_found_error_with_output(
-                            &command.profile,
-                            source_label(command.profile_source),
-                            json_format,
-                            silent,
-                        )
-                    })?
-                    .profile
-            }
-            AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
-                .map(|p| p.profile)
-                .or(global)
-                .ok_or_else(|| {
-                    profile_not_found_error_with_output(
-                        &command.profile,
-                        source_label(command.profile_source),
-                        json_format,
-                        silent,
-                    )
-                })?,
-        }
     };
     let server = mcp_server(&profile, &command.server, json_format)?;
     let url = mcp_url(server)?;
@@ -1070,12 +1045,11 @@ pub async fn handle_agent_mcp_verify_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global = config::get_global_agent_profile(&command.profile)?.map(|loaded| loaded.profile);
-    let profile = if let Some(profile) = explicit {
-        profile.profile
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => global.ok_or_else(|| {
+    let profile = match explicit {
+        Some(profile) => profile.profile,
+        None => config::select_agent_profile(&command.profile, command.profile_source)?
+            .map(|selected| selected.loaded.profile)
+            .ok_or_else(|| {
                 profile_not_found_error_with_output(
                     &command.profile,
                     source_label(command.profile_source),
@@ -1083,30 +1057,6 @@ pub async fn handle_agent_mcp_verify_command(
                     silent,
                 )
             })?,
-            AgentProfileSource::Directory => {
-                config::get_directory_agent_profile(&command.profile)?
-                    .ok_or_else(|| {
-                        profile_not_found_error_with_output(
-                            &command.profile,
-                            source_label(command.profile_source),
-                            json_format,
-                            silent,
-                        )
-                    })?
-                    .profile
-            }
-            AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
-                .map(|p| p.profile)
-                .or(global)
-                .ok_or_else(|| {
-                    profile_not_found_error_with_output(
-                        &command.profile,
-                        source_label(command.profile_source),
-                        json_format,
-                        silent,
-                    )
-                })?,
-        }
     };
     let server = mcp_server(&profile, &command.server, json_format)?;
     let url = mcp_url(server)?;
@@ -1761,40 +1711,17 @@ pub fn handle_agent_mcp_check_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global = config::get_global_agent_profile(&command.profile)?.map(|loaded| loaded.profile);
-    let profile = if let Some(profile) = explicit {
-        profile.profile
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => global.ok_or_else(|| {
+    let profile = match explicit {
+        Some(profile) => profile.profile,
+        None => config::select_agent_profile(&command.profile, command.profile_source)?
+            .map(|selected| selected.loaded.profile)
+            .ok_or_else(|| {
                 profile_not_found_error(
                     &command.profile,
                     source_label(command.profile_source),
                     json_format,
                 )
             })?,
-            AgentProfileSource::Directory => {
-                config::get_directory_agent_profile(&command.profile)?
-                    .ok_or_else(|| {
-                        profile_not_found_error(
-                            &command.profile,
-                            source_label(command.profile_source),
-                            json_format,
-                        )
-                    })?
-                    .profile
-            }
-            AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
-                .map(|p| p.profile)
-                .or(global)
-                .ok_or_else(|| {
-                    profile_not_found_error(
-                        &command.profile,
-                        source_label(command.profile_source),
-                        json_format,
-                    )
-                })?,
-        }
     };
     let server = mcp_server(&profile, &command.server, json_format)?;
     let (allowed, reason) = tool_decision(server, &command.tool);

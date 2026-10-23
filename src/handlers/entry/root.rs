@@ -752,41 +752,29 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         .as_deref()
                         .map(config::get_explicit_agent_profile)
                         .transpose()?;
-                    let global_profile = config::get_global_agent_profile(&agent_run.profile)?;
-                    let (profile, directory_source, profile_path) = if let Some(profile) = explicit_profile {
-                        (
-                            Some(profile.profile),
-                            Some(profile.source),
-                            Some(profile.path),
-                        )
-                    } else { match agent_run.profile_source {
-                        AgentProfileSource::Global => (
-                            global_profile.as_ref().map(|loaded| loaded.profile.clone()),
-                            None,
-                            global_profile.as_ref().map(|loaded| loaded.path.clone()),
-                        ),
-                        AgentProfileSource::Directory => {
-                            let profile = config::get_directory_agent_profile(&agent_run.profile)?;
-                            let source = profile.as_ref().map(|profile| profile.source.clone());
-                            let path = profile.as_ref().map(|profile| profile.path.clone());
-                            (profile.map(|profile| profile.profile), source, path)
-                        }
-                        AgentProfileSource::Auto => {
-                            let directory_profile =
-                                config::get_directory_agent_profile(&agent_run.profile)?;
-                            let source = directory_profile
-                                .as_ref()
-                                .map(|profile| profile.source.clone());
-                            let path = directory_profile.as_ref().map(|profile| profile.path.clone());
-                            (
-                                directory_profile
-                                    .map(|profile| profile.profile)
-                                    .or_else(|| global_profile.as_ref().map(|loaded| loaded.profile.clone())),
-                                source,
-                                path.or_else(|| global_profile.as_ref().map(|loaded| loaded.path.clone())),
-                            )
-                        }
-                    }};
+                    // `profile_source` labels the audit record: the profile file,
+                    // whichever location it came from.
+                    let (profile, directory_source, profile_path, profile_source) =
+                        match explicit_profile {
+                            Some(profile) => (
+                                Some(profile.profile),
+                                Some(profile.source.clone()),
+                                Some(profile.path),
+                                Some(profile.source),
+                            ),
+                            None => match config::select_agent_profile(
+                                &agent_run.profile,
+                                agent_run.profile_source,
+                            )? {
+                                Some(selected) => (
+                                    Some(selected.loaded.profile),
+                                    selected.from_directory.then(|| selected.loaded.source.clone()),
+                                    Some(selected.loaded.path),
+                                    Some(selected.loaded.source),
+                                ),
+                                None => (None, None, None, None),
+                            },
+                        };
                     let loaded_from_directory = directory_source.is_some();
 
                     let Some(mut profile) = profile else {
@@ -1054,9 +1042,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             .collect(),
                     };
                     let policy_fingerprint = policy.fingerprint();
-                    let profile_source = directory_source
+                    let profile_source = profile_source
                         .clone()
-                        .or_else(|| global_profile.as_ref().map(|loaded| loaded.source.clone()))
                         .context("Agent profile source is unavailable")?;
                     let profile_provenance = ProfileAuditProvenance::from_file(
                         profile_source,

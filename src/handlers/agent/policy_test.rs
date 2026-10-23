@@ -147,19 +147,10 @@ fn load_profile(command: &AgentPolicyTestCommand) -> Result<(AgentProfile, Strin
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = config::get_global_agent_profile(&command.profile)?
-        .map(|loaded| (loaded.profile, loaded.source));
-    let resolved = if let Some(profile) = explicit_profile {
-        Some((profile.profile, profile.source))
-    } else {
-        match command.profile_source {
-            AgentProfileSource::Global => global_profile,
-            AgentProfileSource::Directory => config::get_directory_agent_profile(&command.profile)?
-                .map(|profile| (profile.profile, profile.source)),
-            AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
-                .map(|profile| (profile.profile, profile.source))
-                .or(global_profile),
-        }
+    let resolved = match explicit_profile {
+        Some(profile) => Some((profile.profile, profile.source)),
+        None => config::select_agent_profile(&command.profile, command.profile_source)?
+            .map(|selected| (selected.loaded.profile, selected.loaded.source)),
     };
     resolved.ok_or_else(|| {
         anyhow::anyhow!(
