@@ -32,7 +32,9 @@ const CREDENTIAL_DIRS: &[&str] = &[
 /// Resolves entries relative to `cwd` (the directory the run started in,
 /// never the worktree) and refuses anything too broad or sensitive to hand
 /// the agent: `/`, `$HOME` or an ancestor of it, credential directories,
-/// the working directory itself or anything overlapping it, and duplicates.
+/// a parent of the working directory, and overlapping entries. An entry
+/// that is the working directory, or inside it, is skipped: it's already
+/// visible.
 pub fn resolve_extra_paths(
     entries: &[WorkspaceExtraPath],
     cwd: &Path,
@@ -80,9 +82,21 @@ pub fn resolve_extra_paths(
                 }
             }
         }
-        if path.starts_with(&cwd) || cwd.starts_with(&path) {
+        if path.starts_with(&cwd) {
+            // Already visible as the working directory itself, so one
+            // global profile can list every repo of a set and run from any.
+            // Only a read-only entry nested inside would be lost that way.
+            if entry.read_only() && path != cwd {
+                return Err(format!(
+                    "workspace extra path '{raw}' is inside the working directory {}; use [filesystem] deny_write to make it read-only",
+                    cwd.display()
+                ));
+            }
+            continue;
+        }
+        if cwd.starts_with(&path) {
             return Err(format!(
-                "workspace extra path '{raw}' overlaps the working directory {}",
+                "workspace extra path '{raw}' contains the working directory {}; list the repositories you need instead",
                 cwd.display()
             ));
         }
@@ -261,9 +275,7 @@ mod tests {
             ("~/", "home directory"),
             ("../..", "home directory"),
             ("~/.ssh", "credential directory"),
-            (".", "working directory"),
-            ("sub", "working directory"),
-            ("..", "working directory"),
+            ("..", "contains the working directory"),
             ("../missing", "cannot be resolved"),
             ("../file.txt", "not a directory"),
             ("", "must not be empty"),
@@ -304,6 +316,33 @@ mod tests {
             ),
             "{rules:?}"
         );
+    }
+
+    #[test]
+    fn skips_entries_that_are_the_working_directory_or_inside_it() {
+        let fixture = Fixture::new("skip-cwd");
+        let paths = fixture
+            .resolve(&[
+                bare("~/code/cli"),
+                bare("."),
+                bare("sub"),
+                WorkspaceExtraPath::Detailed(WorkspaceExtraPathEntry {
+                    path: "~/code/cli".to_owned(),
+                    read_only: true,
+                }),
+                bare("~/code/backend"),
+            ])
+            .unwrap();
+        let code = fixture.home().join("code").canonicalize().unwrap();
+        assert_eq!(paths, vec![resolved(code.join("backend"), false)]);
+
+        let error = fixture
+            .resolve(&[WorkspaceExtraPath::Detailed(WorkspaceExtraPathEntry {
+                path: "sub".to_owned(),
+                read_only: true,
+            })])
+            .unwrap_err();
+        assert!(error.contains("deny_write"), "{error}");
     }
 
     #[test]

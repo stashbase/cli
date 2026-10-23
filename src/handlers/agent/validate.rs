@@ -1651,7 +1651,7 @@ mod tests {
         profile.sandbox.cpus = Some("not-a-number".to_owned());
         profile.sandbox.isolated_paths = vec!["../outside".to_owned()];
         profile.workspace.extra_paths = vec![crate::models::agent::WorkspaceExtraPath::Path(
-            ".".to_owned(),
+            "..".to_owned(),
         )];
 
         let checks = validate_profile(&profile);

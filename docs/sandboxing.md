@@ -252,7 +252,15 @@ extra_paths = ["../backend", { path = "../docs", read_only = true }]
   - In a writable repo, `.git/config`, `.git/hooks/`, `.git/modules/` and `.git/config.worktree` are mounted read-only. If the agent creates a `.git/commondir` (which would point your `git` at another repository's config), stashbase removes it when the run ends and prints a warning.
   - If an extra folder is itself a git worktree, its repository's `.git` directory is mounted too, with the same protections as a [worktree](#worktrees) run. The worktree's own `.git` file and git pointer files are read-only.
 - **Native backend**: the agent can already reach these folders, because the filesystem policy is a deny-list. A `read_only` entry is added to the run's `deny_write`.
-- stashbase refuses `/`, your home directory or any parent of it, credential directories (`~/.ssh`, `~/.aws`, `~/.config/stashbase`, …), folders that overlap the working directory or each other, and paths that don't exist. `stashbase agent validate` reports these.
+- stashbase refuses `/`, your home directory or any parent of it, credential directories (`~/.ssh`, `~/.aws`, `~/.config/stashbase`, …), a parent of the working directory, folders that overlap each other, and paths that don't exist. `stashbase agent validate` reports these.
+- An entry that is the working directory, or inside it, is skipped, since the agent already sees it. So a global profile can list every repo of a set and work from any of them:
+
+  ```toml
+  [workspace]
+  extra_paths = ["~/Projects/cli", "~/Projects/backend-monorepo"]
+  ```
+
+  Use `~/` or absolute paths in global profiles: relative ones resolve from wherever you start the run. A `read_only` entry inside the working directory is refused instead of skipped; use `[filesystem] deny_write` for that.
 - A worktree (`worktree = true`) covers only the current repo. Extra folders are mounted as they are, so the agent's edits there land directly in those checkouts. The run prints a note when you combine the two.
 - Limits on the Docker backend:
   - Docker Desktop can only mount folders it shares with its VM (by default `/Users`, `/Volumes`, `/private`, `/tmp` and `/var/folders` on macOS). A folder elsewhere fails with Docker's own mount error; add it under Docker Desktop → Settings → Resources → File sharing.
