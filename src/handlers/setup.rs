@@ -68,7 +68,11 @@ pub fn setup(existing_config: Config) -> Result<()> {
 
     config::update_config(updated_config)?;
     if let Some(api_key) = api_key_to_store {
-        if let Err(store_err) = secure_store::set_api_key_for_profile(&profile_name, &api_key) {
+        let store_res = secure_store::set_api_key_for_profile(&profile_name, &api_key);
+        if let Ok(storage) = &store_res {
+            secure_store::report_storage(storage);
+        }
+        if let Err(store_err) = store_res {
             if profile_name == config::DEFAULT_PROFILE {
                 config::update_config(UpdateConfig {
                     api_key: Some(api_key),

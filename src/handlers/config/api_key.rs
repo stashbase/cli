@@ -32,6 +32,9 @@ pub fn set_api_key(read_from_stdin: bool, profile: &str) -> anyhow::Result<()> {
 
     let store_res = secure_store::set_api_key_for_profile(profile, &api_key_value);
 
+    if let Ok(storage) = &store_res {
+        secure_store::report_storage(storage);
+    }
     if let Err(store_err) = store_res {
         if profile != crate::config::config::DEFAULT_PROFILE {
             eprintln!(

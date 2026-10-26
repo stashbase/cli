@@ -1758,7 +1758,7 @@ async fn handle_run(
     let restrict_stashbase_credentials = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.strict_deny);
-    let denied_read_paths = proxy_policy
+    let mut denied_read_paths = proxy_policy
         .as_ref()
         .map(|policy| policy.denied_read_paths.clone())
         .unwrap_or_default();
@@ -1773,6 +1773,20 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.backend)
         .unwrap_or_default();
+    // The Docker backend never mounts the config directory.
+    #[cfg(unix)]
+    if restrict_stashbase_credentials && backend == crate::models::agent::SandboxBackend::Native {
+        let credentials_file = crate::config::credentials_file::path()
+            .ok()
+            .filter(|path| path.is_file());
+        if let Some(warning) = subprocess::hide_credentials_file(
+            &mut denied_read_paths,
+            credentials_file.as_deref(),
+            subprocess::filesystem_enforcement_error,
+        ) {
+            eprintln!("{} {warning}", "Warning:".yellow_if_tty_stderr());
+        }
+    }
     ensure_hooks_can_be_confined(hooks, backend)?;
     let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
         proxy_policy

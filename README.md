@@ -445,7 +445,7 @@ API keys are stored in your OS secure credential store:
 - Linux: Secret Service (`secret-tool`)
 - Windows: DPAPI-encrypted local secret file
 
-If secure storage is unavailable, the CLI falls back to config-file storage and prints a warning. The config file is written with owner-only permissions on Unix systems and contains no secret values.
+When no credential store is available, such as on a server you reach over SSH (no Secret Service, or a locked Keychain), the key is stored in `credentials.toml` next to `config.toml`, readable only by you, and the CLI says so once when it saves the key. `stashbase agent run` hides that file from agents using the native sandbox, the same way it keeps `STASHBASE_API_KEY` out of their environment. On a shared or remote machine, prefer a key with narrow access, such as an environment account, over your personal key.
 
 ### List and Export Secrets
 
