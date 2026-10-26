@@ -423,7 +423,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 return exit_for(Exit::failed(ErrorKind::Validation), bare_agent_hook);
             }
         };
-        let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
+        let mut secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
             Ok(key) => key,
             Err(err) => {
                 if !args.silent {
@@ -445,6 +445,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 if secure_store::set_api_key_for_profile(&profile_name, &legacy_key).is_ok() {
                     let _ = config::clear_legacy_api_key();
                     legacy_config_api_key = None;
+                    // This command still runs with the key it just migrated.
+                    secure_store_api_key = Some(legacy_key);
                 }
             }
         }
