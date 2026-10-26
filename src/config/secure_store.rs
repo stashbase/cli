@@ -225,6 +225,53 @@ pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
     keyring_get(profile)
 }
 
+#[cfg(target_os = "macos")]
+const SYSTEM_STORE: &str = "macOS Keychain";
+#[cfg(target_os = "linux")]
+const SYSTEM_STORE: &str = "Secret Service";
+
+/// Where the profile's API key is read from, for `doctor`, or why nothing
+/// could be read. This is where an unusable keyring shows up, instead of a
+/// warning on every command.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn key_storage_status(profile: &str) -> std::result::Result<String, String> {
+    let path = super::credentials_file::path().map_err(|error| error.to_string())?;
+    match super::credentials_file::get(&path, profile) {
+        Ok(Some(_)) => {
+            return Ok(format!(
+                "credentials file {} (no system keyring)",
+                path.display()
+            ))
+        }
+        Ok(None) => {}
+        Err(error) => return Err(format!("Could not read {}: {error}", path.display())),
+    }
+    #[cfg(target_os = "linux")]
+    if !secret_tool_installed() {
+        return Ok(format!(
+            "no system keyring (secret-tool is not installed); keys you set are stored in {}",
+            path.display()
+        ));
+    }
+    match keyring_get(profile) {
+        Ok(Some(_)) => Ok(SYSTEM_STORE.to_owned()),
+        Ok(None) => Ok(format!(
+            "{SYSTEM_STORE} (no key stored for profile '{profile}')"
+        )),
+        Err(error) => Err(format!(
+            "{SYSTEM_STORE} is unavailable ({error}); keys you set are stored in {}",
+            path.display()
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn secret_tool_installed() -> bool {
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| dir.join("secret-tool").is_file())
+    })
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn delete_api_key() -> Result<()> {
     delete_api_key_for_profile(ACCOUNT)
@@ -371,6 +418,22 @@ pub fn set_api_key_for_profile(_profile: &str, _api_key: &str) -> Result<KeyStor
     Err(anyhow!(
         "Secure API key storage is not implemented for this OS."
     ))
+}
+
+#[cfg(target_os = "windows")]
+pub fn key_storage_status(profile: &str) -> std::result::Result<String, String> {
+    match get_api_key_for_profile(profile) {
+        Ok(Some(_)) => Ok("Windows DPAPI store".to_owned()),
+        Ok(None) => Ok(format!(
+            "Windows DPAPI store (no key stored for profile '{profile}')"
+        )),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+pub fn key_storage_status(_profile: &str) -> std::result::Result<String, String> {
+    Err("Secure API key storage is not implemented for this OS.".to_owned())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
