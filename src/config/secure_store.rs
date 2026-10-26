@@ -1,15 +1,44 @@
-use std::process::Command;
 #[cfg(target_os = "windows")]
-use std::{fs, path::PathBuf};
+use std::fs;
+#[cfg(any(unix, target_os = "windows"))]
+use std::path::PathBuf;
+use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::{io::Write, process::Stdio};
 
+#[cfg(unix)]
+use crate::utils::output::ColorizeIfColoredOutput;
 use anyhow::{anyhow, Result};
 #[cfg(target_os = "windows")]
 use directories::ProjectDirs;
 
 const SERVICE: &str = "stashbase-cli";
 const ACCOUNT: &str = "default";
+
+/// Where `set_api_key_for_profile` put the key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyStorage {
+    /// macOS Keychain, Secret Service, or the Windows DPAPI store.
+    SystemStore,
+    /// The owner-only credentials file, because the system store failed.
+    #[cfg(unix)]
+    File(PathBuf),
+}
+
+/// Tells the user, once at store time, that the key went to the credentials
+/// file instead of the system keyring.
+pub fn report_storage(storage: &KeyStorage) {
+    #[cfg(unix)]
+    if let KeyStorage::File(path) = storage {
+        eprintln!(
+            "{} No system keyring is available, so the API key was stored in {} (readable only by you).",
+            "Note:".yellow_if_tty_stderr(),
+            path.display()
+        );
+    }
+    #[cfg(not(unix))]
+    let _ = storage;
+}
 
 fn account_for_profile(profile: &str) -> String {
     if profile == ACCOUNT {
@@ -20,7 +49,7 @@ fn account_for_profile(profile: &str) -> String {
 }
 
 #[cfg(target_os = "macos")]
-pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
+fn keyring_set(profile: &str, api_key: &str) -> Result<()> {
     let account = account_for_profile(profile);
     let output = Command::new("security")
         .args([
@@ -46,7 +75,7 @@ pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
+fn keyring_set(profile: &str, api_key: &str) -> Result<()> {
     let account = account_for_profile(profile);
     let mut child = Command::new("secret-tool")
         .args([
@@ -80,7 +109,7 @@ pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
+fn keyring_get(profile: &str) -> Result<Option<String>> {
     let account = account_for_profile(profile);
     let output = Command::new("security")
         .args(["find-generic-password", "-a", &account, "-s", SERVICE, "-w"])
@@ -107,22 +136,23 @@ pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
+fn keyring_get(profile: &str) -> Result<Option<String>> {
     let account = account_for_profile(profile);
-    let output = Command::new("secret-tool")
+    let output = match Command::new("secret-tool")
         .args(["lookup", "service", SERVICE, "account", &account])
-        .output()?;
+        .output()
+    {
+        Ok(output) => output,
+        // No `secret-tool` (a headless server): no keyring can hold a key.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
 
     parse_linux_secret_tool_lookup_output(&output.stdout, &output.stderr, output.status.success())
 }
 
 #[cfg(target_os = "macos")]
-pub fn delete_api_key() -> Result<()> {
-    delete_api_key_for_profile(ACCOUNT)
-}
-
-#[cfg(target_os = "macos")]
-pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
+fn keyring_delete(profile: &str) -> Result<()> {
     let account = account_for_profile(profile);
     let output = Command::new("security")
         .args(["delete-generic-password", "-a", &account, "-s", SERVICE])
@@ -144,16 +174,16 @@ pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn delete_api_key() -> Result<()> {
-    delete_api_key_for_profile(ACCOUNT)
-}
-
-#[cfg(target_os = "linux")]
-pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
+fn keyring_delete(profile: &str) -> Result<()> {
     let account = account_for_profile(profile);
-    let output = Command::new("secret-tool")
+    let output = match Command::new("secret-tool")
         .args(["clear", "service", SERVICE, "account", &account])
-        .output()?;
+        .output()
+    {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
 
     if output.status.success() {
         Ok(())
@@ -162,6 +192,52 @@ pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
             "Failed to delete API key from Secret Service: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ))
+    }
+}
+
+/// Stores the key in the system keyring, or in the owner-only credentials
+/// file when the keyring can't take it.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<KeyStorage> {
+    let path = super::credentials_file::path()?;
+    match keyring_set(profile, api_key) {
+        Ok(()) => {
+            // Drop a key an earlier fallback left, so it doesn't shadow this one.
+            super::credentials_file::remove(&path, profile)?;
+            Ok(KeyStorage::SystemStore)
+        }
+        Err(keyring_error) => {
+            super::credentials_file::set(&path, profile, api_key).map_err(|file_error| {
+                anyhow!("{keyring_error}; the credentials file fallback failed too: {file_error}")
+            })?;
+            Ok(KeyStorage::File(path))
+        }
+    }
+}
+
+/// The credentials file is read first: it only holds a key while the latest
+/// write for that profile went there.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
+    if let Some(key) = super::credentials_file::get(&super::credentials_file::path()?, profile)? {
+        return Ok(Some(key));
+    }
+    keyring_get(profile)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn delete_api_key() -> Result<()> {
+    delete_api_key_for_profile(ACCOUNT)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
+    let removed_from_file =
+        super::credentials_file::remove(&super::credentials_file::path()?, profile)?;
+    match keyring_delete(profile) {
+        // The key lived in the file because the keyring doesn't work here.
+        Err(_) if removed_from_file => Ok(()),
+        result => result,
     }
 }
 
@@ -211,7 +287,7 @@ fn escape_ps_single_quoted(value: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
+pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<KeyStorage> {
     let path = windows_secret_file_path(profile)?;
     let path = escape_ps_single_quoted(path.to_string_lossy().as_ref());
 
@@ -228,7 +304,7 @@ pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
         .output()?;
 
     if output.status.success() {
-        Ok(())
+        Ok(KeyStorage::SystemStore)
     } else {
         Err(anyhow!(
             "Failed to store API key in Windows DPAPI store: {}",
@@ -291,7 +367,7 @@ pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-pub fn set_api_key_for_profile(_profile: &str, _api_key: &str) -> Result<()> {
+pub fn set_api_key_for_profile(_profile: &str, _api_key: &str) -> Result<KeyStorage> {
     Err(anyhow!(
         "Secure API key storage is not implemented for this OS."
     ))

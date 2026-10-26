@@ -1252,6 +1252,26 @@ fn systemd_filesystem_enforcement_error() -> Option<String> {
     }
 }
 
+/// Adds the credentials file (the API key fallback when no keyring works) to a
+/// native run's read denials, the way `STASHBASE_API_KEY` is kept out of the
+/// agent's environment. Returns a warning when this machine can't enforce it;
+/// the run then goes ahead rather than failing over a rule nobody configured.
+pub(crate) fn hide_credentials_file(
+    denied_read_paths: &mut Vec<String>,
+    credentials_file: Option<&Path>,
+    enforcement_error: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    let path = credentials_file?;
+    if let Some(error) = enforcement_error() {
+        return Some(format!(
+            "the agent can read the API key in {} ({error}). Install bubblewrap or use the Docker sandbox backend to hide it.",
+            path.display()
+        ));
+    }
+    denied_read_paths.push(path.to_string_lossy().into_owned());
+    None
+}
+
 /// Checks the backend used to enforce filesystem restrictions, including the
 /// user service manager connection required by `systemd-run --user`.
 pub(crate) fn filesystem_enforcement_error() -> Option<String> {
@@ -1282,7 +1302,7 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 mod tests {
     use super::{
         codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
-        herdr_agent_hint, run_command, run_marking_launch, sandbox_command,
+        herdr_agent_hint, hide_credentials_file, run_command, run_marking_launch, sandbox_command,
         should_inherit_terminal_streams,
     };
     #[cfg(target_os = "macos")]
@@ -2211,5 +2231,48 @@ mod tests {
             }));
         }
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn credentials_file_is_denied_when_it_exists() {
+        let mut denied = vec!["~/.ssh".to_owned()];
+        let warning = hide_credentials_file(
+            &mut denied,
+            Some(std::path::Path::new(
+                "/home/dev/.config/stashbase/credentials.toml",
+            )),
+            || None,
+        );
+        assert_eq!(warning, None);
+        assert_eq!(
+            denied,
+            ["~/.ssh", "/home/dev/.config/stashbase/credentials.toml"]
+        );
+    }
+
+    #[test]
+    fn no_credentials_file_adds_no_rule() {
+        let mut denied = Vec::new();
+        let warning = hide_credentials_file(&mut denied, None, || {
+            panic!("enforcement is only probed when there is a file to hide")
+        });
+        assert_eq!(warning, None);
+        assert!(denied.is_empty());
+    }
+
+    #[test]
+    fn credentials_file_warns_when_it_cannot_be_hidden() {
+        let mut denied = Vec::new();
+        let warning = hide_credentials_file(
+            &mut denied,
+            Some(std::path::Path::new(
+                "/home/dev/.config/stashbase/credentials.toml",
+            )),
+            || Some("no bubblewrap".to_owned()),
+        )
+        .unwrap();
+        assert!(denied.is_empty());
+        assert!(warning.contains("/home/dev/.config/stashbase/credentials.toml"));
+        assert!(warning.contains("no bubblewrap"));
     }
 }

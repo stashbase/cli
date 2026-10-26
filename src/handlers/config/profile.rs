@@ -104,13 +104,16 @@ fn add_profile(args: AddProfile, config_data: &Config) -> Result<()> {
             return Err(ReportedFailure::new(ErrorKind::Validation));
         }
     };
-    if let Err(error) = secure_store::set_api_key_for_profile(&args.name, &api_key) {
-        eprintln!(
-            "{} Secure storage is required for profiles: {}",
-            "Error:".red_if_tty_stderr(),
-            error
-        );
-        return Err(ReportedFailure::new(ErrorKind::Other));
+    match secure_store::set_api_key_for_profile(&args.name, &api_key) {
+        Ok(storage) => secure_store::report_storage(&storage),
+        Err(error) => {
+            eprintln!(
+                "{} Could not store the profile's API key: {}",
+                "Error:".red_if_tty_stderr(),
+                error
+            );
+            return Err(ReportedFailure::new(ErrorKind::Other));
+        }
     }
     let profile_already_exists = config_data
         .profiles
