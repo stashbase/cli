@@ -619,6 +619,7 @@ From your laptop, install and set up the CLI on a server or VM:
 stashbase ssh install mybox        # a host from ~/.ssh/config, or user@host
 stashbase ssh setup mybox          # run `stashbase setup` on the machine (API key, profile, output format)
 stashbase ssh uninstall mybox      # remove the CLI, its config and stored API keys
+stashbase ssh open mybox           # connect and attach to the machine's `stashbase` tmux session
 ```
 
 These run your own `ssh`, so your SSH config, agent and jump hosts apply. `ssh install` checks the machine's platform and any existing install, asks before installing or updating (`--yes` skips the question), then runs the install script there; run it again to update the CLI. The machine needs `bash` and `curl` or `wget`, and must be x86_64 Linux for now.
@@ -626,6 +627,8 @@ These run your own `ssh`, so your SSH config, agent and jump hosts apply. `ssh i
 `ssh setup` runs the machine's own interactive setup, so the API key is typed into that machine; the key this CLI uses is never copied over. Use a key meant for that machine, preferably one with narrow access such as an environment account. Afterwards, `ssh mybox` and use `stashbase` there as usual.
 
 `ssh uninstall` lists exactly what it will delete, including any global agent profiles, and asks first (`--yes` skips the question). Deleting a stored key doesn't invalidate it, so revoke it in the dashboard too.
+
+`ssh open` runs `ssh -t mybox` and attaches to a tmux session named `stashbase`, creating it the first time, so agents keep running when you detach or the connection drops; open it again to get back to them. `--with screen|zellij` uses another multiplexer, `--with none` a plain shell. From a phone, set your SSH app's startup command to `tmux new -A -s stashbase` for the same session.
 
 ### Windows
 

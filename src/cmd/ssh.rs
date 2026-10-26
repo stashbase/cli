@@ -1,4 +1,4 @@
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "ssh <COMMAND> [OPTIONS]")]
@@ -15,6 +15,8 @@ pub enum SshSubcommand {
     Setup(SshSetup),
     /// Remove the CLI and its stored API keys from a machine over SSH
     Uninstall(SshUninstall),
+    /// Connect to a machine and attach to its `stashbase` tmux session
+    Open(SshOpen),
 }
 
 #[derive(Debug, Args)]
@@ -48,4 +50,25 @@ pub struct SshUninstall {
     /// Proceed without confirmation
     #[arg(long = "yes", short = 'y')]
     pub yes: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "ssh open <HOST> [OPTIONS]")]
+pub struct SshOpen {
+    /// Machine to connect to, as you would pass it to `ssh`
+    #[arg(value_name = "HOST")]
+    pub host: String,
+
+    /// Terminal multiplexer whose `stashbase` session to attach to, or create
+    #[arg(long = "with", value_enum, default_value = "tmux")]
+    pub multiplexer: Multiplexer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Multiplexer {
+    Tmux,
+    Screen,
+    Zellij,
+    /// A plain login shell
+    None,
 }

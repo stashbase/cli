@@ -11,7 +11,9 @@ use std::{
 use anyhow::{bail, Context, Result};
 
 use crate::{
-    cmd::ssh::{SshCommand, SshInstall, SshSetup, SshSubcommand, SshUninstall},
+    cmd::ssh::{
+        Multiplexer, SshCommand, SshInstall, SshOpen, SshSetup, SshSubcommand, SshUninstall,
+    },
     handlers::run::entry::shell_quote,
     utils::{interaction::confirm_opt, output::ColorizeIfColoredOutput},
 };
@@ -138,20 +140,65 @@ impl Drop for Connection {
 }
 
 pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
-    let host = match &cmd.subcommand {
-        SshSubcommand::Install(args) => &args.host,
-        SshSubcommand::Setup(args) => &args.host,
-        SshSubcommand::Uninstall(args) => &args.host,
-    };
-    validate_host(host)?;
     if which_ssh().is_none() {
         bail!("`ssh` was not found on this machine.");
     }
     match cmd.subcommand {
-        SshSubcommand::Install(args) => install(args),
-        SshSubcommand::Setup(args) => setup(args),
-        SshSubcommand::Uninstall(args) => uninstall(args),
+        SshSubcommand::Install(args) => {
+            validate_host(&args.host)?;
+            install(args)
+        }
+        SshSubcommand::Setup(args) => {
+            validate_host(&args.host)?;
+            setup(args)
+        }
+        SshSubcommand::Uninstall(args) => {
+            validate_host(&args.host)?;
+            uninstall(args)
+        }
+        SshSubcommand::Open(args) => {
+            validate_host(&args.host)?;
+            open(args)
+        }
     }
+}
+
+/// Session name `ssh open` attaches to, so every connection lands in the
+/// same place.
+const SESSION: &str = "stashbase";
+
+/// Remote command that attaches to the `stashbase` session of `multiplexer`,
+/// creating it if needed; without the multiplexer it says so and opens a
+/// login shell.
+fn open_script(multiplexer: Multiplexer) -> Option<String> {
+    let (binary, attach) = match multiplexer {
+        Multiplexer::Tmux => ("tmux", format!("tmux new-session -A -s {SESSION}")),
+        Multiplexer::Screen => ("screen", format!("screen -xRR -S {SESSION}")),
+        Multiplexer::Zellij => ("zellij", format!("zellij attach --create {SESSION}")),
+        Multiplexer::None => return None,
+    };
+    Some(format!(
+        "if command -v {binary} >/dev/null 2>&1; then exec {attach}; fi\n\
+         echo '{binary} is not installed here, so this is a plain shell: agents stop if the connection drops. Install {binary} to keep them running.' >&2\n\
+         exec \"${{SHELL:-sh}}\" -l\n"
+    ))
+}
+
+/// Connects with the user's own `ssh` and attaches to the `stashbase`
+/// session; detaching or a dropped connection leaves it running.
+fn open(cmd: SshOpen) -> Result<()> {
+    let host = cmd.host;
+    let mut command = Command::new("ssh");
+    command.arg("-t").arg(&host);
+    if let Some(script) = open_script(cmd.multiplexer) {
+        command.arg(sh_command(&script, &[]));
+    }
+    let status = command.status().context("Could not start `ssh`")?;
+    // 255 is ssh's own failure; anything else is how the remote shell ended.
+    if status.code() == Some(255) {
+        bail!("Could not connect to {host} (ssh exited with {status}).");
+    }
+    Ok(())
 }
 
 fn install(cmd: SshInstall) -> Result<()> {
@@ -648,6 +695,21 @@ mod tests {
         // Kept in step with install.sh's detect_target.
         assert!(INSTALL_SCRIPT.contains("    linux-x86_64)\n"));
         assert!(INSTALL_SCRIPT.contains("    darwin-arm64|darwin-aarch64)\n"));
+    }
+
+    #[test]
+    fn open_attaches_or_creates_the_stashbase_session() {
+        let tmux = open_script(Multiplexer::Tmux).unwrap();
+        assert!(tmux.contains("command -v tmux"));
+        assert!(tmux.contains("exec tmux new-session -A -s stashbase"));
+        assert!(tmux.contains("exec \"${SHELL:-sh}\" -l"));
+        assert!(open_script(Multiplexer::Screen)
+            .unwrap()
+            .contains("exec screen -xRR -S stashbase"));
+        assert!(open_script(Multiplexer::Zellij)
+            .unwrap()
+            .contains("exec zellij attach --create stashbase"));
+        assert_eq!(open_script(Multiplexer::None), None);
     }
 
     #[test]
