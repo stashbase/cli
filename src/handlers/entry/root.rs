@@ -792,6 +792,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         return Ok(Exit::failed(ErrorKind::Validation));
                     };
 
+                    if !silent {
+                        if let Some(hint) = crate::handlers::ssh::detached_agent_hint(
+                            |name| std::env::var(name).ok(),
+                            std::io::IsTerminal::is_terminal(&std::io::stdin()),
+                        ) {
+                            eprintln!("{} {hint}", "Note:".yellow_if_tty_stderr());
+                        }
+                    }
                     profile.sandbox.backend =
                         profile.sandbox.backend.with_cli_override(agent_run.docker_sandbox);
                     if let Some(image) = &agent_run.docker_image {

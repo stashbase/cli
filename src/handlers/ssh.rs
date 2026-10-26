@@ -66,6 +66,22 @@ fn install(cmd: SshInstall) -> Result<()> {
     Ok(())
 }
 
+/// Hint for `agent run` started in an SSH session outside a terminal
+/// multiplexer, where a dropped connection ends the agent with it.
+pub fn detached_agent_hint(
+    env: impl Fn(&str) -> Option<String>,
+    interactive: bool,
+) -> Option<&'static str> {
+    let set = |name: &str| env(name).is_some_and(|value| !value.is_empty());
+    let over_ssh = set("SSH_CONNECTION") || set("SSH_TTY");
+    let multiplexed = ["TMUX", "STY", "ZELLIJ", "HERDR_ENV"]
+        .iter()
+        .any(|name| set(name));
+    (interactive && over_ssh && !multiplexed).then_some(
+        "You're connected over SSH, so the agent stops if the connection drops. Run it inside tmux (or screen) to keep it running.",
+    )
+}
+
 /// Runs the machine's own interactive `stashbase setup` in a terminal session.
 fn setup(cmd: SshSetup) -> Result<()> {
     let host = cmd.host;
@@ -380,6 +396,35 @@ mod tests {
             sh_command("echo \"$1\"", &["/a b/stashbase".to_owned()]),
             r#"sh -c 'echo "$1"' sh '/a b/stashbase'"#
         );
+    }
+
+    #[test]
+    fn hints_tmux_only_for_interactive_ssh_sessions_outside_a_multiplexer() {
+        let hint = |vars: &[(&str, &str)], interactive: bool| {
+            let vars: Vec<(String, String)> = vars
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect();
+            detached_agent_hint(
+                |name| {
+                    vars.iter()
+                        .find(|(key, _)| key == name)
+                        .map(|(_, value)| value.clone())
+                },
+                interactive,
+            )
+        };
+        let ssh = ("SSH_CONNECTION", "10.0.0.2 51234 10.0.0.5 22");
+        assert!(hint(&[ssh], true).is_some());
+        assert!(hint(&[("SSH_TTY", "/dev/pts/0")], true).is_some());
+        assert!(hint(&[ssh], false).is_none());
+        assert!(hint(&[], true).is_none());
+        for multiplexer in ["TMUX", "STY", "ZELLIJ", "HERDR_ENV"] {
+            assert!(
+                hint(&[ssh, (multiplexer, "1")], true).is_none(),
+                "{multiplexer}"
+            );
+        }
     }
 
     #[test]
