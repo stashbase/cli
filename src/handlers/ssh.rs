@@ -4,6 +4,7 @@
 
 use std::{
     io::{BufRead, BufReader, IsTerminal, Write},
+    path::PathBuf,
     process::{Command, Stdio},
 };
 
@@ -31,6 +32,111 @@ const LOCATE_CONFIG_DIR: &str = r#"if [ "$(uname -s)" = Darwin ]; then dir="$HOM
 /// Exit code of the remote scripts when the CLI isn't installed there.
 const NOT_INSTALLED: i32 = 3;
 
+/// One SSH connection shared by every step of a command, so a password,
+/// security-key touch or 2FA prompt comes once rather than per step. The
+/// first `ssh` opens it in the background (`-f -N`); later ones reuse its
+/// control socket; dropping this closes it.
+struct Connection {
+    host: String,
+    /// Directory holding the control socket. `None` where OpenSSH can't
+    /// share connections (Windows), so each step connects on its own.
+    control_dir: Option<PathBuf>,
+}
+
+impl Connection {
+    fn open(host: &str) -> Result<Self> {
+        let mut connection = Self {
+            host: host.to_owned(),
+            control_dir: None,
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            // Short: a Unix socket path is limited to about 104 bytes.
+            let dir = std::env::temp_dir().join(format!(
+                "sb-ssh-{}",
+                &uuid::Uuid::new_v4().simple().to_string()[..12]
+            ));
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&dir)
+                .with_context(|| format!("Could not create {}", dir.display()))?;
+            connection.control_dir = Some(dir);
+            let status = Command::new("ssh")
+                .args(connection.control_options("yes"))
+                .args(["-o", "ControlPersist=120", "-f", "-N", host])
+                .stdout(Stdio::null())
+                .status()
+                .context("Could not start `ssh`")?;
+            if !status.success() {
+                bail!("Could not connect to {host} (ssh exited with {status}).");
+            }
+        }
+        Ok(connection)
+    }
+
+    fn control_options(&self, master: &str) -> Vec<String> {
+        match &self.control_dir {
+            Some(dir) => vec![
+                "-o".to_owned(),
+                format!("ControlPath={}", dir.join("s").display()),
+                "-o".to_owned(),
+                format!("ControlMaster={master}"),
+            ],
+            None => Vec::new(),
+        }
+    }
+
+    /// `ssh [-t] <host> <remote_command>` over the shared connection.
+    fn command(&self, tty: bool, remote_command: &str) -> Command {
+        let mut command = Command::new("ssh");
+        command.args(self.control_options("no"));
+        if tty {
+            command.arg("-t");
+        }
+        command.args([&self.host, remote_command]);
+        command
+    }
+
+    fn output(&self, remote_command: &str) -> Result<String> {
+        let output = self
+            .command(false, remote_command)
+            .stdin(Stdio::null())
+            .stderr(Stdio::inherit())
+            .output()
+            .context("Could not start `ssh`")?;
+        if !output.status.success() {
+            bail!(
+                "`{remote_command}` failed on {} (ssh exited with {}).",
+                self.host,
+                output.status
+            );
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        let Some(dir) = self.control_dir.take() else {
+            return;
+        };
+        let _ = Command::new("ssh")
+            .args([
+                "-o",
+                &format!("ControlPath={}", dir.join("s").display()),
+                "-O",
+                "exit",
+                &self.host,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
 pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
     let host = match &cmd.subcommand {
         SshSubcommand::Install(args) => &args.host,
@@ -50,17 +156,18 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
 
 fn install(cmd: SshInstall) -> Result<()> {
     let host = cmd.host;
+    let ssh = Connection::open(&host)?;
 
-    let platform = remote_output(&host, "uname -sm")?;
+    let platform = ssh.output("uname -sm")?;
     if let Some(reason) = unsupported_platform(&platform) {
         bail!("{host} runs {}, {reason}", platform.trim());
     }
 
     eprintln!("Installing stashbase on {host} over SSH…");
-    let binary = install_over_ssh(&host)?;
+    let binary = install_over_ssh(&ssh)?;
 
-    check_login_path(&host, &binary);
-    let version = remote_output(&host, &format!("{} --version", shell_quote(&binary)))?;
+    check_login_path(&ssh, &binary);
+    let version = ssh.output(&format!("{} --version", shell_quote(&binary)))?;
     // The API key is set by `ssh setup`, like `setup` does locally; the key
     // this CLI uses is never copied onto another machine.
     eprintln!(
@@ -173,10 +280,11 @@ fn removal_summary(host: &str, installation: &Installation) -> String {
 /// exactly what goes.
 fn uninstall(cmd: SshUninstall) -> Result<()> {
     let host = cmd.host;
+    let ssh = Connection::open(&host)?;
     let inspect = format!(
         "{LOCATE_BINARY}{LOCATE_CONFIG_DIR}echo \"bin=$bin\"\n[ -d \"$dir\" ] && echo \"config=$dir\"\necho \"agent_profiles=$(ls \"$dir/agents\"/*.toml 2>/dev/null | wc -l)\"\n"
     );
-    let installation = parse_installation(&remote_output(&host, &sh_command(&inspect, &[]))?);
+    let installation = parse_installation(&ssh.output(&sh_command(&inspect, &[]))?);
     if installation.binary.is_none() && installation.config_dir.is_none() {
         eprintln!("stashbase is not installed on {host}; nothing to remove.");
         return Ok(());
@@ -205,8 +313,8 @@ fi
         installation.binary.clone().unwrap_or_default(),
         installation.config_dir.clone().unwrap_or_default(),
     ];
-    let status = Command::new("ssh")
-        .args(["-t", &host, &sh_command(remove, &args)])
+    let status = ssh
+        .command(true, &sh_command(remove, &args))
         .status()
         .context("Could not start `ssh`")?;
     if !status.success() {
@@ -249,9 +357,9 @@ fn which_ssh() -> Option<()> {
 /// Runs the bundled install.sh on the host and returns where it put the
 /// binary. Its output is shown as it comes; the script downloads and
 /// checksums the release on the host itself.
-fn install_over_ssh(host: &str) -> Result<String> {
-    let mut child = Command::new("ssh")
-        .args([host, "bash -s"])
+fn install_over_ssh(ssh: &Connection) -> Result<String> {
+    let mut child = ssh
+        .command(false, "bash -s")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -277,16 +385,19 @@ fn install_over_ssh(host: &str) -> Result<String> {
     }
     let status = child.wait()?;
     if !status.success() {
-        bail!("Installing on {host} failed (ssh exited with {status}).");
+        bail!(
+            "Installing on {} failed (ssh exited with {status}).",
+            ssh.host
+        );
     }
     binary.context("install.sh finished without saying where it installed stashbase")
 }
 
 /// Warns when `stashbase` in the user's login shell on the host isn't the
 /// binary just installed. Best effort: a failed check only skips the warning.
-fn check_login_path(host: &str, binary: &str) {
-    let Ok(output) = Command::new("ssh")
-        .args([host, r#""${SHELL:-sh}" -lc 'command -v stashbase'"#])
+fn check_login_path(ssh: &Connection, binary: &str) {
+    let Ok(output) = ssh
+        .command(false, r#""${SHELL:-sh}" -lc 'command -v stashbase'"#)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -319,22 +430,6 @@ fn installed_binary_path(line: &str) -> Option<String> {
     let rest = line.strip_prefix("Installed stashbase ")?;
     let (_, path) = rest.split_once(" to ")?;
     Some(path.trim().to_owned()).filter(|path| !path.is_empty())
-}
-
-fn remote_output(host: &str, command: &str) -> Result<String> {
-    let output = Command::new("ssh")
-        .args([host, command])
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output()
-        .context("Could not start `ssh`")?;
-    if !output.status.success() {
-        bail!(
-            "`{command}` failed on {host} (ssh exited with {}).",
-            output.status
-        );
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 #[cfg(test)]
