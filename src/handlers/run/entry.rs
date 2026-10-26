@@ -151,7 +151,7 @@ fn missing_image_build_command(
 /// Quotes `value` for a POSIX shell so a copied command keeps it as one
 /// word: left bare when it only has characters no shell treats specially,
 /// otherwise single-quoted with each embedded `'` written as `'\''`.
-fn shell_quote(value: &str) -> String {
+pub(crate) fn shell_quote(value: &str) -> String {
     let is_plain = !value.is_empty()
         && value
             .chars()

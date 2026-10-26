@@ -14,6 +14,7 @@ use super::{
     run::RunCommand,
     secrets::SecretArgs,
     setup::SetupCommand,
+    ssh::SshCommand,
     webhooks::WebhookCommand,
 };
 
@@ -105,6 +106,9 @@ pub enum EntityType {
     /// Interactively configure Stashbase CLI
     Setup(SetupCommand),
 
+    /// Machines you reach over SSH
+    Ssh(SshCommand),
+
     /// Open web dashboard
     #[clap(name = "open", aliases = &["dashboard"])]
     Open,
@@ -120,6 +124,8 @@ impl EntityType {
             EntityType::Generate(_) => false,
             EntityType::Config(_) => false,
             EntityType::Doctor(_) => false,
+            // Logging the machine in is optional.
+            EntityType::Ssh(_) => false,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Init(_),
             }) => false,

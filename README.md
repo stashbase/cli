@@ -611,6 +611,18 @@ curl -fsSL https://stashbase.dev/cli/install.sh | bash
 
 Or download from [releases](https://github.com/stashbase/cli/releases).
 
+### A machine you reach over SSH
+
+From your laptop, install the CLI on a server or VM and optionally log it in:
+
+```bash
+stashbase ssh install mybox        # a host from ~/.ssh/config, or user@host
+```
+
+It runs your own `ssh` (so your SSH config, agent and jump hosts apply), runs the install script on the machine, and then asks for an API key for that machine (leave it empty to skip). Use a key meant for that machine, preferably one with narrow access such as an environment account; the key this CLI uses is never copied over. The key is sent through ssh's stdin, never on a command line. Use `--no-login` to skip the question. Afterwards, `ssh mybox` and use `stashbase` there as usual.
+
+The machine needs `bash` and `curl` or `wget`, and must be x86_64 Linux for now.
+
 ### Windows
 
 For general commands, use the native Windows CLI via [Scoop](https://scoop.sh):
