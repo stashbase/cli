@@ -24,6 +24,10 @@ pub struct SshInstall {
     /// ~/.ssh/config or user@host)
     #[arg(value_name = "HOST")]
     pub host: String,
+
+    /// Proceed without confirmation
+    #[arg(long = "yes", short = 'y')]
+    pub yes: bool,
 }
 
 #[derive(Debug, Args)]

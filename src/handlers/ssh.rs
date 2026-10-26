@@ -158,15 +158,46 @@ fn install(cmd: SshInstall) -> Result<()> {
     let host = cmd.host;
     let ssh = Connection::open(&host)?;
 
-    let platform = ssh.output("uname -sm")?;
-    if let Some(reason) = unsupported_platform(&platform) {
-        bail!("{host} runs {}, {reason}", platform.trim());
+    // One round trip for the platform and any existing copies: the one the
+    // login shell runs (`bin`) and others install.sh or PATH might pick.
+    let probe = format!(
+        "uname -sm\n{LOCATE_BINARY}[ -n \"$bin\" ] && echo \"bin=$bin\" && echo \"version=$(\"$bin\" --version 2>/dev/null)\"\n\
+         for f in \"$HOME/.local/bin/stashbase\" /usr/local/bin/stashbase \"$(command -v stashbase 2>/dev/null)\"; do\n\
+         [ -n \"$f\" ] && [ -x \"$f\" ] && [ \"$f\" != \"$bin\" ] && echo \"other=$f\"\n\
+         done\ntrue\n"
+    );
+    let found = Probe::parse(&ssh.output(&sh_command(&probe, &[]))?);
+    if let Some(reason) = unsupported_platform(&found.platform) {
+        bail!("{host} runs {}, {reason}", found.platform);
+    }
+
+    let question = install_question(&host, &found);
+    if !cmd.yes {
+        if !std::io::stdin().is_terminal() {
+            bail!("{question} Pass --yes to proceed without confirmation.");
+        }
+        if confirm_opt(&question) != Some(true) {
+            return Ok(());
+        }
     }
 
     eprintln!("Installing stashbase on {host} over SSH…");
-    let binary = install_over_ssh(&ssh)?;
+    // Update the copy the login shell runs, where the question said: left to
+    // itself, install.sh would pick whatever its non-login PATH finds first.
+    let install_dir = found
+        .bin
+        .as_deref()
+        .and_then(|bin| bin.rsplit_once('/'))
+        .map(|(dir, _)| dir);
+    let binary = install_over_ssh(&ssh, install_dir)?;
 
     check_login_path(&ssh, &binary);
+    for other in found.others.iter().filter(|other| **other != binary) {
+        eprintln!(
+            "{} {host} also has {other}, which `ssh {host}` doesn't run. Remove it if you don't need it.",
+            "Note:".yellow_if_tty_stderr()
+        );
+    }
     let version = ssh.output(&format!("{} --version", shell_quote(&binary)))?;
     // The API key is set by `ssh setup`, like `setup` does locally; the key
     // this CLI uses is never copied onto another machine.
@@ -176,6 +207,59 @@ fn install(cmd: SshInstall) -> Result<()> {
         version.trim()
     );
     Ok(())
+}
+
+/// What `ssh install` found on the machine before installing.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Probe {
+    /// `uname -sm`.
+    platform: String,
+    /// The stashbase the login shell runs.
+    bin: Option<String>,
+    version: Option<String>,
+    /// Other copies, which the login shell doesn't run.
+    others: Vec<String>,
+}
+
+impl Probe {
+    /// The first line is `uname -sm`; then `bin=`, `version=` and `other=`
+    /// lines.
+    fn parse(output: &str) -> Self {
+        let mut probe = Self {
+            platform: output.lines().next().unwrap_or_default().trim().to_owned(),
+            ..Self::default()
+        };
+        for line in output.lines().skip(1) {
+            let Some((name, value)) = line.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            if value.is_empty() {
+                continue;
+            }
+            match name {
+                "bin" => probe.bin = Some(value.to_owned()),
+                "version" => probe.version = Some(value.to_owned()),
+                "other" if !probe.others.iter().any(|other| other == value) => {
+                    probe.others.push(value.to_owned())
+                }
+                _ => {}
+            }
+        }
+        probe
+    }
+}
+
+/// What `ssh install` asks before installing or updating.
+fn install_question(host: &str, probe: &Probe) -> String {
+    let platform = &probe.platform;
+    match (probe.bin.as_deref(), probe.version.as_deref()) {
+        (Some(bin), Some(version)) => {
+            format!("Update stashbase on {host} ({version} at {bin}) to the latest release?")
+        }
+        (Some(bin), None) => format!("Replace {bin} on {host} with the latest stashbase?"),
+        _ => format!("Install stashbase on {host} ({platform})?"),
+    }
 }
 
 /// Checks `uname -sm` against the targets install.sh knows, before anything
@@ -357,9 +441,14 @@ fn which_ssh() -> Option<()> {
 /// Runs the bundled install.sh on the host and returns where it put the
 /// binary. Its output is shown as it comes; the script downloads and
 /// checksums the release on the host itself.
-fn install_over_ssh(ssh: &Connection) -> Result<String> {
+fn install_over_ssh(ssh: &Connection, install_dir: Option<&str>) -> Result<String> {
+    // `env` so this also works when the login shell isn't POSIX (fish).
+    let remote = match install_dir {
+        Some(dir) => format!("env INSTALL_DIR={} bash -s", shell_quote(dir)),
+        None => "bash -s".to_owned(),
+    };
     let mut child = ssh
-        .command(false, "bash -s")
+        .command(false, &remote)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -559,6 +648,45 @@ mod tests {
         // Kept in step with install.sh's detect_target.
         assert!(INSTALL_SCRIPT.contains("    linux-x86_64)\n"));
         assert!(INSTALL_SCRIPT.contains("    darwin-arm64|darwin-aarch64)\n"));
+    }
+
+    #[test]
+    fn install_asks_to_install_or_update() {
+        let probe = |output: &str| Probe::parse(output);
+        assert_eq!(
+            install_question("mybox", &probe("Linux x86_64\n")),
+            "Install stashbase on mybox (Linux x86_64)?"
+        );
+        assert_eq!(
+            install_question(
+                "mybox",
+                &probe("Linux x86_64\nbin=/usr/local/bin/stashbase\nversion=stashbase 0.22.0\n")
+            ),
+            "Update stashbase on mybox (stashbase 0.22.0 at /usr/local/bin/stashbase) to the latest release?"
+        );
+        assert_eq!(
+            install_question(
+                "mybox",
+                &probe("Linux x86_64\nbin=/opt/sb/stashbase\nversion=\n")
+            ),
+            "Replace /opt/sb/stashbase on mybox with the latest stashbase?"
+        );
+    }
+
+    #[test]
+    fn probe_lists_other_copies_once() {
+        let probe = Probe::parse(
+            "Linux x86_64\nbin=/home/dev/.local/bin/stashbase\nversion=stashbase 0.20.0\nother=/usr/local/bin/stashbase\nother=/usr/local/bin/stashbase\n",
+        );
+        assert_eq!(
+            probe,
+            Probe {
+                platform: "Linux x86_64".to_owned(),
+                bin: Some("/home/dev/.local/bin/stashbase".to_owned()),
+                version: Some("stashbase 0.20.0".to_owned()),
+                others: vec!["/usr/local/bin/stashbase".to_owned()],
+            }
+        );
     }
 
     #[test]
