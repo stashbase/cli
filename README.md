@@ -617,7 +617,7 @@ From your laptop, install and set up the CLI on a server or VM:
 
 ```bash
 stashbase ssh install mybox        # a host from ~/.ssh/config, or user@host
-stashbase ssh setup mybox          # run `stashbase setup` on the machine (API key, profile, output format)
+stashbase ssh setup mybox          # run `stashbase setup` on the machine (API key, profile, output format), then its `doctor`
 stashbase ssh uninstall mybox      # remove the CLI, its config and stored API keys
 stashbase ssh open mybox           # connect and attach to the machine's `stashbase` tmux session
 ```

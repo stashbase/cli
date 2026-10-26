@@ -34,6 +34,14 @@ const LOCATE_CONFIG_DIR: &str = r#"if [ "$(uname -s)" = Darwin ]; then dir="$HOM
 /// Exit code of the remote scripts when the CLI isn't installed there.
 const NOT_INSTALLED: i32 = 3;
 
+/// The user's `ssh`, giving up on a machine that doesn't answer (a stale
+/// address, a stopped VM) instead of hanging with nothing on screen.
+fn ssh() -> Command {
+    let mut command = Command::new("ssh");
+    command.args(["-o", "ConnectTimeout=15"]);
+    command
+}
+
 /// One SSH connection shared by every step of a command, so a password,
 /// security-key touch or 2FA prompt comes once rather than per step. The
 /// first `ssh` opens it in the background (`-f -N`); later ones reuse its
@@ -47,6 +55,8 @@ struct Connection {
 
 impl Connection {
     fn open(host: &str) -> Result<Self> {
+        // Not a spinner: ssh may ask for a password or to trust the host.
+        eprintln!("Connecting to {host}…");
         let mut connection = Self {
             host: host.to_owned(),
             control_dir: None,
@@ -64,7 +74,7 @@ impl Connection {
                 .create(&dir)
                 .with_context(|| format!("Could not create {}", dir.display()))?;
             connection.control_dir = Some(dir);
-            let status = Command::new("ssh")
+            let status = ssh()
                 .args(connection.control_options("yes"))
                 .args(["-o", "ControlPersist=120", "-f", "-N", host])
                 .stdout(Stdio::null())
@@ -91,7 +101,7 @@ impl Connection {
 
     /// `ssh [-t] <host> <remote_command>` over the shared connection.
     fn command(&self, tty: bool, remote_command: &str) -> Command {
-        let mut command = Command::new("ssh");
+        let mut command = ssh();
         command.args(self.control_options("no"));
         if tty {
             command.arg("-t");
@@ -188,8 +198,11 @@ fn open_script(multiplexer: Multiplexer) -> Option<String> {
 /// session; detaching or a dropped connection leaves it running.
 fn open(cmd: SshOpen) -> Result<()> {
     let host = cmd.host;
-    let mut command = Command::new("ssh");
-    command.arg("-t").arg(&host);
+    eprintln!("Connecting to {host}…");
+    let mut command = ssh();
+    // Keepalives stop NAT and cloud firewalls from cutting an idle session,
+    // such as one where an agent works quietly for a long time.
+    command.args(["-o", "ServerAliveInterval=30", "-t", &host]);
     if let Some(script) = open_script(cmd.multiplexer) {
         command.arg(sh_command(&script, &[]));
     }
@@ -342,16 +355,28 @@ pub fn detached_agent_hint(
     )
 }
 
+/// Remote command for `ssh setup`: the machine's own interactive setup, then
+/// its `doctor`, so a key that doesn't work or a missing tool shows up now
+/// rather than on the first run. Doctor's findings don't fail the setup.
+fn setup_script() -> String {
+    format!(
+        "{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\n\
+         \"$bin\" setup || exit $?\n\
+         echo\n\
+         \"$bin\" doctor --auth-check\n\
+         exit 0\n"
+    )
+}
+
 /// Runs the machine's own interactive `stashbase setup` in a terminal session.
 fn setup(cmd: SshSetup) -> Result<()> {
     let host = cmd.host;
     if !std::io::stdin().is_terminal() {
         bail!("`stashbase ssh setup` is interactive and needs a terminal.");
     }
-    let script =
-        format!("{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\nexec \"$bin\" setup\n");
-    let status = Command::new("ssh")
-        .args(["-t", &host, &sh_command(&script, &[])])
+    eprintln!("Connecting to {host}…");
+    let status = ssh()
+        .args(["-t", &host, &sh_command(&setup_script(), &[])])
         .status()
         .context("Could not start `ssh`")?;
     match status.code() {
@@ -695,6 +720,15 @@ mod tests {
         // Kept in step with install.sh's detect_target.
         assert!(INSTALL_SCRIPT.contains("    linux-x86_64)\n"));
         assert!(INSTALL_SCRIPT.contains("    darwin-arm64|darwin-aarch64)\n"));
+    }
+
+    #[test]
+    fn setup_runs_doctor_only_after_a_successful_setup() {
+        let script = setup_script();
+        let setup = script.find("\"$bin\" setup || exit $?").unwrap();
+        let doctor = script.find("\"$bin\" doctor --auth-check").unwrap();
+        assert!(setup < doctor);
+        assert!(script.ends_with("exit 0\n"));
     }
 
     #[test]
