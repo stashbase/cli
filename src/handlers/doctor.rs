@@ -193,7 +193,7 @@ pub async fn handle_doctor_command(
         checks.push(with_optional_details(
             warn(
                 "API key source",
-                "Using legacy config file key; run setup/config to migrate to secure store",
+                "Using the key in config.toml; run `stashbase setup` to move it to secure storage",
             ),
             api_key_presence_details.clone(),
         ));

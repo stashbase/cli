@@ -1610,7 +1610,7 @@ impl CredentialSource {
             Self::Environment => {
                 format!("{profile_name} (API key overridden by STASHBASE_API_KEY)")
             }
-            Self::LegacyConfig => format!("{profile_name} (using legacy config API key)"),
+            Self::LegacyConfig => format!("{profile_name} (using the key in config.toml)"),
             Self::Profile | Self::None => profile_name.to_owned(),
         }
     }
