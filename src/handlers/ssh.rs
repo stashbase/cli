@@ -1,6 +1,6 @@
-//! `stashbase ssh install <host>`: installs the CLI on a machine through the
-//! user's own `ssh`, so their ~/.ssh/config, agent and jump hosts apply, and
-//! optionally logs it in. Stashbase never wraps the SSH session itself.
+//! `stashbase ssh install|setup|uninstall <host>`: manages the CLI on a
+//! machine through the user's own `ssh`, so their ~/.ssh/config, agent and
+//! jump hosts apply. Stashbase never wraps the SSH session itself.
 
 use std::{
     io::{BufRead, BufReader, IsTerminal, Write},
@@ -10,51 +10,186 @@ use std::{
 use anyhow::{bail, Context, Result};
 
 use crate::{
-    cmd::ssh::{SshCommand, SshInstall, SshSubcommand},
+    cmd::ssh::{SshCommand, SshInstall, SshSetup, SshSubcommand, SshUninstall},
     handlers::run::entry::shell_quote,
-    utils::{interaction::input_password, output::ColorizeIfColoredOutput},
+    utils::{interaction::confirm_opt, output::ColorizeIfColoredOutput},
 };
 
 const INSTALL_SCRIPT: &str = include_str!("../../install.sh");
 
+/// POSIX sh that sets `bin` to the stashbase the user's login shell runs, or
+/// the install.sh default, or empty when neither exists.
+const LOCATE_BINARY: &str = r#"bin=$("${SHELL:-sh}" -lc 'command -v stashbase' 2>/dev/null | tail -n 1)
+if [ -z "$bin" ] && [ -x "$HOME/.local/bin/stashbase" ]; then bin="$HOME/.local/bin/stashbase"; fi
+"#;
+
+/// POSIX sh that sets `dir` to the CLI's config directory (the `directories`
+/// crate's choice for each OS).
+const LOCATE_CONFIG_DIR: &str = r#"if [ "$(uname -s)" = Darwin ]; then dir="$HOME/Library/Application Support/stashbase"; else dir="${XDG_CONFIG_HOME:-$HOME/.config}/stashbase"; fi
+"#;
+
+/// Exit code of the remote scripts when the CLI isn't installed there.
+const NOT_INSTALLED: i32 = 3;
+
 pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
+    let host = match &cmd.subcommand {
+        SshSubcommand::Install(args) => &args.host,
+        SshSubcommand::Setup(args) => &args.host,
+        SshSubcommand::Uninstall(args) => &args.host,
+    };
+    validate_host(host)?;
+    if which_ssh().is_none() {
+        bail!("`ssh` was not found on this machine.");
+    }
     match cmd.subcommand {
         SshSubcommand::Install(args) => install(args),
+        SshSubcommand::Setup(args) => setup(args),
+        SshSubcommand::Uninstall(args) => uninstall(args),
     }
 }
 
 fn install(cmd: SshInstall) -> Result<()> {
     let host = cmd.host;
-    validate_host(&host)?;
-    if which_ssh().is_none() {
-        bail!("`ssh` was not found on this machine.");
-    }
 
     eprintln!("Installing stashbase on {host} over SSH…");
     let binary = install_over_ssh(&host)?;
 
-    // Only a key typed or pasted for this machine is sent: the key this CLI
-    // uses is never copied onto another machine.
-    let api_key = if !cmd.no_login && std::io::stdin().is_terminal() {
-        input_password(&format!("API key for {host} (leave empty to skip)"))
-    } else {
-        None
-    };
-    match api_key {
-        Some(key) => set_remote_api_key(&host, &binary, &key)?,
-        None => eprintln!(
-            "Not logged in. To log in later: ssh {host}, then `stashbase config api-key set`."
-        ),
-    }
-
     check_login_path(&host, &binary);
     let version = remote_output(&host, &format!("{} --version", shell_quote(&binary)))?;
+    // The API key is set by `ssh setup`, like `setup` does locally; the key
+    // this CLI uses is never copied onto another machine.
     eprintln!(
-        "\n{} {} on {host}. Connect with `ssh {host}` and use `stashbase` there.",
+        "\n{} {} on {host}. Set it up with: stashbase ssh setup {host}",
         "Done:".green_if_tty_stderr(),
         version.trim()
     );
     Ok(())
+}
+
+/// Runs the machine's own interactive `stashbase setup` in a terminal session.
+fn setup(cmd: SshSetup) -> Result<()> {
+    let host = cmd.host;
+    if !std::io::stdin().is_terminal() {
+        bail!("`stashbase ssh setup` is interactive and needs a terminal.");
+    }
+    let script =
+        format!("{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\nexec \"$bin\" setup\n");
+    let status = Command::new("ssh")
+        .args(["-t", &host, &sh_command(&script, &[])])
+        .status()
+        .context("Could not start `ssh`")?;
+    match status.code() {
+        Some(0) => Ok(()),
+        Some(NOT_INSTALLED) => {
+            bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
+        }
+        _ => bail!("Setup on {host} failed (ssh exited with {status})."),
+    }
+}
+
+/// What `uninstall` found on the machine.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Installation {
+    binary: Option<String>,
+    config_dir: Option<String>,
+    agent_profiles: usize,
+}
+
+fn parse_installation(output: &str) -> Installation {
+    let mut installation = Installation::default();
+    for line in output.lines() {
+        match line.split_once('=') {
+            Some(("bin", value)) if !value.is_empty() => {
+                installation.binary = Some(value.to_owned())
+            }
+            Some(("config", value)) if !value.is_empty() => {
+                installation.config_dir = Some(value.to_owned())
+            }
+            Some(("agent_profiles", value)) => {
+                installation.agent_profiles = value.trim().parse().unwrap_or(0)
+            }
+            _ => {}
+        }
+    }
+    installation
+}
+
+fn removal_summary(host: &str, installation: &Installation) -> String {
+    let mut summary = format!("This removes from {host}:");
+    if let Some(binary) = &installation.binary {
+        summary.push_str(&format!("\n  {binary}"));
+    }
+    if let Some(dir) = &installation.config_dir {
+        let profiles = match installation.agent_profiles {
+            0 => String::new(),
+            1 => ", and 1 global agent profile".to_owned(),
+            count => format!(", and {count} global agent profiles"),
+        };
+        summary.push_str(&format!("\n  {dir} (API keys, config{profiles})"));
+    }
+    summary
+}
+
+/// Removes the binary, the stored API keys (also from a keyring, through the
+/// machine's own `config reset`) and the config directory, after showing
+/// exactly what goes.
+fn uninstall(cmd: SshUninstall) -> Result<()> {
+    let host = cmd.host;
+    let inspect = format!(
+        "{LOCATE_BINARY}{LOCATE_CONFIG_DIR}echo \"bin=$bin\"\n[ -d \"$dir\" ] && echo \"config=$dir\"\necho \"agent_profiles=$(ls \"$dir/agents\"/*.toml 2>/dev/null | wc -l)\"\n"
+    );
+    let installation = parse_installation(&remote_output(&host, &sh_command(&inspect, &[]))?);
+    if installation.binary.is_none() && installation.config_dir.is_none() {
+        eprintln!("stashbase is not installed on {host}; nothing to remove.");
+        return Ok(());
+    }
+
+    eprintln!("{}", removal_summary(&host, &installation));
+    if !cmd.yes {
+        if !std::io::stdin().is_terminal() {
+            bail!("Pass --yes to remove without confirmation.");
+        }
+        if confirm_opt("Remove?") != Some(true) {
+            return Ok(());
+        }
+    }
+
+    // `-t` so sudo can ask for a password when the binary sits in a
+    // directory the user can't write, such as /usr/local/bin.
+    let remove = r#"bin="$1"; dir="$2"
+if [ -n "$bin" ]; then "$bin" config reset --force >/dev/null 2>&1 || true; fi
+if [ -n "$dir" ]; then rm -rf "$dir"; fi
+if [ -n "$bin" ]; then
+  if [ -w "$(dirname "$bin")" ]; then rm -f "$bin"; else sudo rm -f "$bin"; fi
+fi
+"#;
+    let args = [
+        installation.binary.clone().unwrap_or_default(),
+        installation.config_dir.clone().unwrap_or_default(),
+    ];
+    let status = Command::new("ssh")
+        .args(["-t", &host, &sh_command(remove, &args)])
+        .status()
+        .context("Could not start `ssh`")?;
+    if !status.success() {
+        bail!("Removing stashbase from {host} failed (ssh exited with {status}).");
+    }
+    eprintln!(
+        "{} Removed stashbase from {host}. If an API key was stored there, revoke it in the dashboard too: deleting the file doesn't invalidate a copy.",
+        "Done:".green_if_tty_stderr()
+    );
+    Ok(())
+}
+
+/// The remote login shell may not be POSIX (fish), so scripts run under `sh`,
+/// with `args` as `$1`, `$2`, …
+fn sh_command(script: &str, args: &[String]) -> String {
+    let mut command = format!("sh -c {} sh", shell_quote(script));
+    for arg in args {
+        command.push(' ');
+        command.push_str(&shell_quote(arg));
+    }
+    command
 }
 
 /// A host starting with `-` would be read by `ssh` as an option.
@@ -148,31 +283,6 @@ fn installed_binary_path(line: &str) -> Option<String> {
     Some(path.trim().to_owned()).filter(|path| !path.is_empty())
 }
 
-/// The key goes through ssh's stdin, never the command line, so it shows up
-/// in no process list or shell history on either machine.
-fn set_remote_api_key(host: &str, binary: &str, api_key: &str) -> Result<()> {
-    let mut child = Command::new("ssh")
-        .args([
-            host,
-            &format!("{} config api-key set --stdin", shell_quote(binary)),
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .context("Could not start `ssh`")?;
-    child
-        .stdin
-        .take()
-        .context("ssh stdin")?
-        .write_all(api_key.as_bytes())?;
-    let status = child.wait()?;
-    if !status.success() {
-        bail!("Setting the API key on {host} failed (ssh exited with {status}).");
-    }
-    Ok(())
-}
-
 fn remote_output(host: &str, command: &str) -> Result<String> {
     let output = Command::new("ssh")
         .args([host, command])
@@ -227,6 +337,49 @@ mod tests {
         assert!(login_path_note(binary, "/usr/local/bin/stashbase")
             .unwrap()
             .contains("runs /usr/local/bin/stashbase"));
+    }
+
+    #[test]
+    fn reads_what_uninstall_found() {
+        let found = parse_installation(
+            "bin=/home/dev/.local/bin/stashbase\nconfig=/home/dev/.config/stashbase\nagent_profiles=       2\n",
+        );
+        assert_eq!(
+            found,
+            Installation {
+                binary: Some("/home/dev/.local/bin/stashbase".to_owned()),
+                config_dir: Some("/home/dev/.config/stashbase".to_owned()),
+                agent_profiles: 2,
+            }
+        );
+        assert_eq!(
+            parse_installation("bin=\nagent_profiles=0\n"),
+            Installation::default()
+        );
+    }
+
+    #[test]
+    fn removal_summary_names_agent_profiles() {
+        let mut found = Installation {
+            binary: Some("/usr/local/bin/stashbase".to_owned()),
+            config_dir: Some("/home/dev/.config/stashbase".to_owned()),
+            agent_profiles: 0,
+        };
+        assert_eq!(
+            removal_summary("mybox", &found),
+            "This removes from mybox:\n  /usr/local/bin/stashbase\n  /home/dev/.config/stashbase (API keys, config)"
+        );
+        found.agent_profiles = 1;
+        assert!(removal_summary("mybox", &found)
+            .ends_with("(API keys, config, and 1 global agent profile)"));
+    }
+
+    #[test]
+    fn remote_scripts_run_under_sh_with_quoted_args() {
+        assert_eq!(
+            sh_command("echo \"$1\"", &["/a b/stashbase".to_owned()]),
+            r#"sh -c 'echo "$1"' sh '/a b/stashbase'"#
+        );
     }
 
     #[test]

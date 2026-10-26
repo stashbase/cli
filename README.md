@@ -613,15 +613,19 @@ Or download from [releases](https://github.com/stashbase/cli/releases).
 
 ### A machine you reach over SSH
 
-From your laptop, install the CLI on a server or VM and optionally log it in:
+From your laptop, install and set up the CLI on a server or VM:
 
 ```bash
 stashbase ssh install mybox        # a host from ~/.ssh/config, or user@host
+stashbase ssh setup mybox          # run `stashbase setup` on the machine (API key, profile, output format)
+stashbase ssh uninstall mybox      # remove the CLI, its config and stored API keys
 ```
 
-It runs your own `ssh` (so your SSH config, agent and jump hosts apply), runs the install script on the machine, and then asks for an API key for that machine (leave it empty to skip). Use a key meant for that machine, preferably one with narrow access such as an environment account; the key this CLI uses is never copied over. The key is sent through ssh's stdin, never on a command line. Use `--no-login` to skip the question. Afterwards, `ssh mybox` and use `stashbase` there as usual.
+These run your own `ssh`, so your SSH config, agent and jump hosts apply. `ssh install` runs the install script on the machine; run it again to update the CLI there. The machine needs `bash` and `curl` or `wget`, and must be x86_64 Linux for now.
 
-The machine needs `bash` and `curl` or `wget`, and must be x86_64 Linux for now.
+`ssh setup` runs the machine's own interactive setup, so the API key is typed into that machine; the key this CLI uses is never copied over. Use a key meant for that machine, preferably one with narrow access such as an environment account. Afterwards, `ssh mybox` and use `stashbase` there as usual.
+
+`ssh uninstall` lists exactly what it will delete, including any global agent profiles, and asks first (`--yes` skips the question). Deleting a stored key doesn't invalidate it, so revoke it in the dashboard too.
 
 ### Windows
 
