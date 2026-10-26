@@ -7,6 +7,7 @@ use crate::{
         root::EntityType,
         scans::ScanSubcommand,
         secrets::{SchemaSecretSubcommand, SecretSubcommand},
+        ssh::{SshCommand, SshSubcommand},
     },
     models::{api_client::OutputError, validation::InputValidationError},
 };
@@ -22,13 +23,14 @@ pub enum TrackedCommand {
     AgentInit,
     AgentRun,
     AgentDockerBuild,
+    SshInstall,
 }
 
 impl TrackedCommand {
     /// The command is chosen from the parsed clap enum, never from argv text.
     /// Tracked: setup, pull, push, run, secrets schema pull, scan install,
-    /// agent init, agent run and agent docker build. Everything else sends
-    /// nothing.
+    /// agent init, agent run, agent docker build and ssh install. Everything
+    /// else sends nothing.
     pub fn from_entity(entity: &EntityType) -> Option<Self> {
         match entity {
             EntityType::Setup(_) => Some(Self::Setup),
@@ -77,6 +79,12 @@ impl TrackedCommand {
                     | AgentDockerSubcommand::Shell(_) => None,
                 },
             },
+            // Only `ssh install` (adopting remote machines) is tracked; setup
+            // and uninstall follow from it.
+            EntityType::Ssh(SshCommand { subcommand }) => match subcommand {
+                SshSubcommand::Install(_) => Some(Self::SshInstall),
+                SshSubcommand::Setup(_) | SshSubcommand::Uninstall(_) => None,
+            },
             _ => None,
         }
     }
@@ -92,6 +100,7 @@ impl TrackedCommand {
             Self::AgentInit => "agent init",
             Self::AgentRun => "agent run",
             Self::AgentDockerBuild => "agent docker build",
+            Self::SshInstall => "ssh install",
         }
     }
 }
@@ -322,6 +331,7 @@ mod tests {
                 "scan install",
             ),
             (&["stashbase", "agent", "init", "p"], "agent init"),
+            (&["stashbase", "ssh", "install", "mybox"], "ssh install"),
             (
                 &["stashbase", "agent", "run", "--profile", "p", "--", "echo"],
                 "agent run",
@@ -339,6 +349,8 @@ mod tests {
     fn untracked_commands_produce_no_command() {
         let untracked: Vec<&[&str]> = vec![
             &["stashbase", "whoami"],
+            &["stashbase", "ssh", "setup", "mybox"],
+            &["stashbase", "ssh", "uninstall", "mybox"],
             &["stashbase", "open"],
             &["stashbase", "secrets", "list"],
             &["stashbase", "config", "print"],
