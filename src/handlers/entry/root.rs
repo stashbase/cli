@@ -423,19 +423,12 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 return exit_for(Exit::failed(ErrorKind::Validation), bare_agent_hook);
             }
         };
-        let mut secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
-            Ok(key) => key,
-            Err(err) => {
-                if !args.silent {
-                    eprintln!(
-                        "{} {}",
-                        "Warning:".yellow_if_tty_stderr(),
-                        format!("Secure key storage is unavailable ({err}).")
-                    );
-                }
-                None
-            }
-        };
+        // A keyring that can't be read is reported when a key is stored and by
+        // `doctor`, not on every command: on a server it never works, and the
+        // key then comes from the credentials file or the environment.
+        let mut secure_store_api_key = secure_store::get_api_key_for_profile(&profile_name)
+            .ok()
+            .flatten();
         let mut legacy_config_api_key = (profile_name == config::DEFAULT_PROFILE)
             .then(|| config.api_key.clone())
             .flatten();
