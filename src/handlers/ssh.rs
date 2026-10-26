@@ -51,6 +51,11 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
 fn install(cmd: SshInstall) -> Result<()> {
     let host = cmd.host;
 
+    let platform = remote_output(&host, "uname -sm")?;
+    if let Some(reason) = unsupported_platform(&platform) {
+        bail!("{host} runs {}, {reason}", platform.trim());
+    }
+
     eprintln!("Installing stashbase on {host} over SSH…");
     let binary = install_over_ssh(&host)?;
 
@@ -64,6 +69,23 @@ fn install(cmd: SshInstall) -> Result<()> {
         version.trim()
     );
     Ok(())
+}
+
+/// Checks `uname -sm` against the targets install.sh knows, before anything
+/// is downloaded.
+fn unsupported_platform(uname: &str) -> Option<&'static str> {
+    let mut parts = uname.split_whitespace();
+    // Not `?`: output that isn't two words must not count as supported.
+    match (parts.next().unwrap_or(""), parts.next().unwrap_or("")) {
+        ("Linux", "x86_64") | ("Darwin", "arm64" | "aarch64") => None,
+        ("Linux", "aarch64" | "arm64") => {
+            Some("which isn't supported yet: stashbase is released for x86_64 Linux only.")
+        }
+        ("Darwin", _) => Some("which isn't supported: stashbase needs an Apple Silicon Mac."),
+        _ => {
+            Some("which stashbase isn't released for (x86_64 Linux and Apple Silicon macOS only).")
+        }
+    }
 }
 
 /// Hint for `agent run` started in an SSH session outside a terminal
@@ -425,6 +447,23 @@ mod tests {
                 "{multiplexer}"
             );
         }
+    }
+
+    #[test]
+    fn accepts_only_the_platforms_install_sh_supports() {
+        assert_eq!(unsupported_platform("Linux x86_64\n"), None);
+        assert_eq!(unsupported_platform("Darwin arm64\n"), None);
+        assert!(unsupported_platform("Linux aarch64\n")
+            .unwrap()
+            .contains("isn't supported yet"));
+        assert!(unsupported_platform("Darwin x86_64\n")
+            .unwrap()
+            .contains("Apple Silicon"));
+        assert!(unsupported_platform("FreeBSD amd64\n").is_some());
+        assert!(unsupported_platform("").is_some());
+        // Kept in step with install.sh's detect_target.
+        assert!(INSTALL_SCRIPT.contains("    linux-x86_64)\n"));
+        assert!(INSTALL_SCRIPT.contains("    darwin-arm64|darwin-aarch64)\n"));
     }
 
     #[test]
