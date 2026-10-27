@@ -144,19 +144,13 @@ pub async fn handle_doctor_command(
         };
 
     let env_api_key = get_stashbase_api_key();
-    let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
-        Ok(key) => {
-            checks.push(ok("Secure store", "Accessible"));
-            key
-        }
-        Err(err) => {
-            checks.push(warn(
-                "Secure store",
-                format!("Could not read secure store API key for profile '{profile_name}': {err}"),
-            ));
-            None
-        }
-    };
+    checks.push(match secure_store::key_storage_status(&profile_name) {
+        Ok(location) => ok("Key storage", location),
+        Err(error) => warn("Key storage", error),
+    });
+    let secure_store_api_key = secure_store::get_api_key_for_profile(&profile_name)
+        .ok()
+        .flatten();
 
     let legacy_config_api_key = (profile_name == crate::config::config::DEFAULT_PROFILE)
         .then(|| parsed_config.as_ref().and_then(|cfg| cfg.api_key.clone()))
@@ -199,7 +193,7 @@ pub async fn handle_doctor_command(
         checks.push(with_optional_details(
             warn(
                 "API key source",
-                "Using legacy config file key; run setup/config to migrate to secure store",
+                "Using the key in config.toml; run `stashbase setup` to move it to secure storage",
             ),
             api_key_presence_details.clone(),
         ));
