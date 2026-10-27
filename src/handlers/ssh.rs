@@ -198,8 +198,17 @@ fn open_script(multiplexer: Multiplexer) -> Option<String> {
 /// session; detaching or a dropped connection leaves it running.
 fn open(cmd: SshOpen) -> Result<()> {
     let host = cmd.host;
+    let forwards = cmd
+        .ports
+        .iter()
+        .map(|spec| port_forward(spec))
+        .collect::<Result<Vec<_>>>()?;
     eprintln!("Connecting to {host}…");
     let mut command = ssh();
+    for (local, remote) in &forwards {
+        eprintln!("Forwarding localhost:{local} to port {remote} on {host}");
+        command.args(["-L", &format!("127.0.0.1:{local}:localhost:{remote}")]);
+    }
     // Keepalives stop NAT and cloud firewalls from cutting an idle session,
     // such as one where an agent works quietly for a long time.
     command.args(["-o", "ServerAliveInterval=30", "-t", &host]);
@@ -212,6 +221,26 @@ fn open(cmd: SshOpen) -> Result<()> {
         bail!("Could not connect to {host} (ssh exited with {status}).");
     }
     Ok(())
+}
+
+/// Parses `--port`: `3000` forwards local 3000 to the machine's 3000,
+/// `8080:3000` local 8080 to its 3000. Returns (local, remote).
+fn port_forward(spec: &str) -> Result<(u16, u16)> {
+    let parse = |port: &str| {
+        port.parse::<u16>()
+            .ok()
+            .filter(|port| *port != 0)
+            .with_context(|| {
+                format!("Invalid --port '{spec}': use a port such as 3000, or LOCAL:REMOTE such as 8080:3000.")
+            })
+    };
+    match spec.split_once(':') {
+        Some((local, remote)) => Ok((parse(local)?, parse(remote)?)),
+        None => {
+            let port = parse(spec)?;
+            Ok((port, port))
+        }
+    }
 }
 
 fn install(cmd: SshInstall) -> Result<()> {
@@ -741,6 +770,15 @@ mod tests {
         let docker = script.find("\"$bin\" agent docker doctor").unwrap();
         assert!(setup < doctor && doctor < docker);
         assert!(script.ends_with("exit 0\n"));
+    }
+
+    #[test]
+    fn port_forward_takes_one_port_or_local_and_remote() {
+        assert_eq!(port_forward("3000").unwrap(), (3000, 3000));
+        assert_eq!(port_forward("8080:3000").unwrap(), (8080, 3000));
+        for bad in ["", "0", "70000", "abc", "8080:", ":3000", "1:2:3"] {
+            assert!(port_forward(bad).is_err(), "{bad} should be rejected");
+        }
     }
 
     #[test]
