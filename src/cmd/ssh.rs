@@ -59,9 +59,14 @@ pub struct SshOpen {
     #[arg(value_name = "HOST")]
     pub host: String,
 
-    /// Terminal multiplexer whose `stashbase` session to attach to, or create
+    /// Terminal multiplexer whose session to attach to, or create
     #[arg(long = "with", value_enum, default_value = "tmux")]
     pub multiplexer: Multiplexer,
+
+    /// Session to attach to, or create; another name keeps work apart from
+    /// the default session
+    #[arg(long = "session", value_name = "NAME", default_value = "stashbase")]
+    pub session: String,
 
     /// Make a port on the machine, such as a dev server, reachable on this
     /// one while connected: `3000`, or `8080:3000` for local port 8080.
