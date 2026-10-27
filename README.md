@@ -632,6 +632,8 @@ The agents themselves aren't installed by these commands. Install the one you us
 
 `ssh open` runs `ssh -t mybox` and attaches to a tmux session named `stashbase`, creating it the first time, so agents keep running when you detach or the connection drops; open it again to get back to them. `--with screen|zellij` uses another multiplexer, `--with none` a plain shell. `--port 3000` makes a port on the machine, such as a dev server, reachable at `localhost:3000` on your computer while you're connected (repeatable; `8080:3000` picks a different local port). From a phone, set your SSH app's startup command to `tmux new -A -s stashbase` for the same session.
 
+Use one machine per developer. A machine shared by several Linux users doesn't keep them apart: members of the `docker` group are effectively root, so they can read each other's keys and files.
+
 ### Windows
 
 For general commands, use the native Windows CLI via [Scoop](https://scoop.sh):
