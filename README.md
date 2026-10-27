@@ -632,6 +632,8 @@ The agents themselves aren't installed by these commands. Install the one you us
 
 `ssh open` runs `ssh -t mybox` and attaches to a tmux session named `stashbase`, creating it the first time, so agents keep running when you detach or the connection drops; open it again to get back to them. `--with screen|zellij` uses another multiplexer, `--with none` a plain shell. `--session work` attaches to (or creates) a session named `work` instead, for work you want kept apart. If the machine doesn't know your terminal (such as Ghostty or kitty), `ssh open` falls back to `xterm-256color`; for full support, copy its description over once, e.g. `infocmp -x xterm-ghostty | ssh mybox -- tic -x -`. `--port 3000` makes a port on the machine, such as a dev server, reachable at `localhost:3000` on your computer while you're connected (repeatable; `8080:3000` picks a different local port). From a phone, set your SSH app's startup command to `tmux new -A -s stashbase` for the same session.
 
+Using [herdr](https://herdr.dev)? Connect with `herdr machine add mybox` instead of `ssh open`. herdr then runs on the machine too, and your local herdr shows the state (idle, working, blocked) of the agents you run there, Docker-sandboxed ones included. Through `ssh open`, herdr only sees the local `ssh` process.
+
 Use one machine per developer. A machine shared by several Linux users doesn't keep them apart: members of the `docker` group are effectively root, so they can read each other's keys and files.
 
 ### Windows
