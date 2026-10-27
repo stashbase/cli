@@ -452,6 +452,34 @@ fn cleanup_isolated_path_volumes(yes: bool, raw_output: bool, silent: bool) -> R
 /// `docker_enforcement_error` gives a real `agent run` failing closed,
 /// since a standalone diagnostic is exactly where naming which part
 /// failed is most useful.
+/// How to fix the first failed Docker check, for `agent docker doctor`.
+/// `daemon_error` is `docker info`'s complaint; `linux` picks between Docker
+/// Engine and Docker Desktop advice.
+fn docker_fix_hint(
+    binary_available: bool,
+    daemon_error: Option<&str>,
+    linux: bool,
+) -> Option<&'static str> {
+    if !binary_available {
+        return Some(if linux {
+            "Install Docker Engine: https://docs.docker.com/engine/install/ (quickest on Debian/Ubuntu: `curl -fsSL https://get.docker.com | sudo sh`)"
+        } else {
+            "Install Docker Desktop: https://docs.docker.com/desktop/"
+        });
+    }
+    let error = daemon_error?.to_ascii_lowercase();
+    if error.contains("permission denied") {
+        return Some(
+            "Let your user use Docker: `sudo usermod -aG docker $USER`, then log out and back in (members of the docker group are effectively root on this machine)",
+        );
+    }
+    Some(if linux {
+        "Start the daemon: `sudo systemctl enable --now docker`. If there is no docker.service, only the `docker` client is installed: install Docker Engine from https://docs.docker.com/engine/install/"
+    } else {
+        "Start Docker Desktop (or the Docker engine you use, such as OrbStack or Colima)"
+    })
+}
+
 pub async fn handle_docker_doctor_command(
     _command: AgentDockerDoctorCommand,
     raw_output: bool,
@@ -479,6 +507,11 @@ pub async fn handle_docker_doctor_command(
         crate::handlers::run::docker_sandbox::stale_default_image_hint(created_at, now)
     });
     let all_ok = binary_available && daemon_version.is_ok();
+    let fix_hint = docker_fix_hint(
+        binary_available,
+        daemon_version.as_ref().err().map(String::as_str),
+        cfg!(target_os = "linux"),
+    );
 
     if raw_output {
         let json = serde_json::json!({
@@ -492,6 +525,7 @@ pub async fn handle_docker_doctor_command(
             "claude_code_version": agent_versions.claude,
             "codex_version": agent_versions.codex,
             "ready": all_ok,
+            "fix_hint": fix_hint,
         });
         println!("{}", get_formatted_json_string(&json, true)?);
         return Ok(!all_ok);
@@ -548,6 +582,9 @@ pub async fn handle_docker_doctor_command(
             "{}",
             "Docker sandbox backend is not ready — see the failed check(s) above.".red_if_tty()
         );
+        if let Some(hint) = fix_hint {
+            println!("{hint}");
+        }
     }
 
     Ok(!all_ok)
@@ -617,6 +654,30 @@ mod tests {
             session_id: session_id.map(str::to_owned),
             created_at: "2026-01-01T00:00:00Z".to_owned(),
         }
+    }
+
+    #[test]
+    fn docker_fix_hint_names_the_fix_for_the_first_failed_check() {
+        let missing = docker_fix_hint(false, None, true).unwrap();
+        assert!(missing.contains("Install Docker Engine"));
+        assert!(docker_fix_hint(false, None, false)
+            .unwrap()
+            .contains("Docker Desktop"));
+
+        let denied = "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock";
+        assert!(docker_fix_hint(true, Some(denied), true)
+            .unwrap()
+            .contains("usermod -aG docker"));
+
+        let stopped = "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?";
+        assert!(docker_fix_hint(true, Some(stopped), true)
+            .unwrap()
+            .contains("systemctl enable --now docker"));
+        assert!(docker_fix_hint(true, Some(stopped), false)
+            .unwrap()
+            .starts_with("Start Docker Desktop"));
+
+        assert_eq!(docker_fix_hint(true, None, true), None);
     }
 
     #[test]
