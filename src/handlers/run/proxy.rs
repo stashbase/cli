@@ -1162,6 +1162,9 @@ struct ProxyState {
     mcp_inspection_token: String,
     hook_broker: Option<Arc<HookBroker>>,
     revocation_path: Arc<RwLock<Option<PathBuf>>>,
+    /// The address this proxy listens on, so a request addressed to the proxy
+    /// itself is refused instead of forwarded back into it.
+    listen_address: std::net::SocketAddr,
 }
 
 impl ProxyState {
@@ -1497,6 +1500,7 @@ impl Proxy {
                 })
             }),
             revocation_path: revocation_path.clone(),
+            listen_address: address,
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -2005,6 +2009,30 @@ fn proxy_request(
         }
 
         let request_id = new_local_request_id();
+        // A plain request to the proxy's own address (e.g. the Docker
+        // backend's firewall check, `curl http://<gateway>:<port>/`) takes its
+        // target from the Host header. Forwarding it would connect back to
+        // this listener, again and again, until file descriptors run out.
+        if connect_authority.is_none()
+            && upstream_authority(&request, None)
+                .is_ok_and(|authority| authority_is_listener(&authority, state.listen_address))
+        {
+            state.record_audit_with_request(
+                &request_id,
+                "loop_blocked",
+                request_host(&request, None).as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::LOOP_DETECTED),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response_with_id(
+                StatusCode::LOOP_DETECTED,
+                "proxy.loop_detected",
+                "Agent Proxy does not forward requests addressed to itself",
+                Some(&request_id),
+            ));
+        }
         let host = request_host(&request, connect_authority.as_deref());
         // The agent controls its own environment, so the STASHBASE_SANDBOX
         // marker alone cannot keep telemetry out of an agent session. Every
@@ -3460,6 +3488,29 @@ fn upstream_authority(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
         .context("HTTP proxy request is missing a Host header")
+}
+
+/// Whether `authority` (from a Host header or request URI) names this proxy's
+/// own listener.
+fn authority_is_listener(authority: &str, listen: std::net::SocketAddr) -> bool {
+    let Some((host, port)) = split_authority(authority, false) else {
+        return false;
+    };
+    if port != listen.port() {
+        return false;
+    }
+    let listen_ip = listen.ip();
+    if host.eq_ignore_ascii_case("localhost") {
+        return listen_ip.is_loopback() || listen_ip.is_unspecified();
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => {
+            ip == listen_ip
+                || listen_ip.is_unspecified()
+                || (ip.is_loopback() && listen_ip.is_loopback())
+        }
+        Err(_) => false,
+    }
 }
 
 fn upgrade_origin_form_uri<B>(request: &Request<B>) -> hyper::Uri {
@@ -7358,6 +7409,7 @@ mod tests {
             mcp_inspection_token: "inspection-token".to_owned(),
             hook_broker: None,
             revocation_path: Arc::new(RwLock::new(None)),
+            listen_address: "127.0.0.1:1".parse().unwrap(),
         };
 
         assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
@@ -7409,6 +7461,7 @@ mod tests {
             mcp_inspection_token: "inspection-token".to_owned(),
             hook_broker: None,
             revocation_path: Arc::new(RwLock::new(None)),
+            listen_address: "127.0.0.1:1".parse().unwrap(),
         };
 
         assert!(state.host_allowed_for_connect(Some("mcp.context7.com")));
@@ -7417,6 +7470,48 @@ mod tests {
         // Without the secret, a secret-only host is still not ordinary egress.
         assert!(!state.host_allowed_for_ordinary_request(Some("mcp.context7.com")));
         assert!(state.host_allowed_for_ordinary_request(Some("chatgpt.com")));
+    }
+
+    #[test]
+    fn recognizes_authorities_naming_the_proxy_listener() {
+        let gateway: std::net::SocketAddr = "172.18.0.1:45933".parse().unwrap();
+        assert!(authority_is_listener("172.18.0.1:45933", gateway));
+        assert!(!authority_is_listener("172.18.0.1:8080", gateway));
+        assert!(!authority_is_listener("172.18.0.2:45933", gateway));
+        assert!(!authority_is_listener("example.com:45933", gateway));
+        let loopback: std::net::SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        assert!(authority_is_listener("localhost:5000", loopback));
+        assert!(authority_is_listener("127.0.0.1:5000", loopback));
+        assert!(!authority_is_listener("127.0.0.1", loopback));
+    }
+
+    #[tokio::test]
+    async fn refuses_a_plain_request_addressed_to_the_proxy_itself() {
+        // The Docker backend's firewall check sends exactly this: an
+        // origin-form GET to the proxy's own address. With permissive egress
+        // it used to be forwarded back into the proxy until fds ran out.
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let address = proxy.child_env()["HTTP_PROXY"]
+            .trim_start_matches("http://")
+            .to_owned();
+        let mut stream = tokio::net::TcpStream::connect(&address).await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(
+            &mut stream,
+            format!("GET / HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
+        .await
+        .unwrap();
+        let mut response = String::new();
+        tokio::io::AsyncReadExt::read_to_string(&mut stream, &mut response)
+            .await
+            .unwrap();
+        assert!(
+            response.starts_with("HTTP/1.1 508"),
+            "unexpected response: {response}"
+        );
+        proxy.stop().await;
     }
 
     #[tokio::test]
