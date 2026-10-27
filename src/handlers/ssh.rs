@@ -42,6 +42,14 @@ fn ssh() -> Command {
     command
 }
 
+/// The error for `ssh` itself failing (exit 255), which only the user's own
+/// `ssh` can explain.
+fn connect_error(host: &str, status: std::process::ExitStatus) -> anyhow::Error {
+    anyhow::anyhow!(
+        "Could not connect to {host} (ssh exited with {status}). Check that `ssh {host}` works on its own; `ssh -v {host}` shows why it doesn't."
+    )
+}
+
 /// One SSH connection shared by every step of a command, so a password,
 /// security-key touch or 2FA prompt comes once rather than per step. The
 /// first `ssh` opens it in the background (`-f -N`); later ones reuse its
@@ -81,7 +89,7 @@ impl Connection {
                 .status()
                 .context("Could not start `ssh`")?;
             if !status.success() {
-                bail!("Could not connect to {host} (ssh exited with {status}).");
+                return Err(connect_error(host, status));
             }
         }
         Ok(connection)
@@ -218,7 +226,7 @@ fn open(cmd: SshOpen) -> Result<()> {
     let status = command.status().context("Could not start `ssh`")?;
     // 255 is ssh's own failure; anything else is how the remote shell ended.
     if status.code() == Some(255) {
-        bail!("Could not connect to {host} (ssh exited with {status}).");
+        return Err(connect_error(&host, status));
     }
     Ok(())
 }
@@ -424,6 +432,7 @@ fn setup(cmd: SshSetup) -> Result<()> {
         Some(NOT_INSTALLED) => {
             bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
         }
+        Some(255) => Err(connect_error(&host, status)),
         _ => bail!("Setup on {host} failed (ssh exited with {status})."),
     }
 }
