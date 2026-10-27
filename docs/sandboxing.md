@@ -230,7 +230,7 @@ Add `--profile <name>` to target that profile's own `sandbox.image`/`sandbox.doc
 stashbase agent docker doctor
 ```
 
-Checks whether the Docker sandbox backend can actually run here — the `docker` CLI on PATH, the daemon reachable (and its version), and whether the default image is already built (with how old it is and the Claude Code/Codex versions inside it) — without starting a real sandboxed run to find out. Exits non-zero if anything's not ready; pass `--json` for machine-readable output. Useful for onboarding or CI setup scripts that want to fail fast with a clear reason, rather than discovering a missing Docker install only when a real `agent run` fails.
+Checks whether the Docker sandbox backend can actually run here — the `docker` CLI on PATH, the daemon reachable (and its version), and whether the default image is already built (with how old it is and the Claude Code/Codex versions inside it) — without starting a real sandboxed run to find out. When a check fails it says how to fix it: install Docker, start the daemon, or add your user to the `docker` group (`fix_hint` in the JSON). Exits non-zero if anything's not ready; pass `--json` for machine-readable output. Useful for onboarding or CI setup scripts that want to fail fast with a clear reason, rather than discovering a missing Docker install only when a real `agent run` fails.
 
 ### Docker backend limitations
 

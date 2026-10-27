@@ -611,6 +611,29 @@ curl -fsSL https://stashbase.dev/cli/install.sh | bash
 
 Or download from [releases](https://github.com/stashbase/cli/releases).
 
+### A machine you reach over SSH
+
+From your laptop, install and set up the CLI on a server or VM:
+
+```bash
+stashbase ssh install mybox        # a host from ~/.ssh/config, or user@host
+stashbase ssh setup mybox          # run `stashbase setup` on the machine (API key, profile, output format), then check the key and Docker
+stashbase ssh uninstall mybox      # remove the CLI, its config and stored API keys
+stashbase ssh open mybox           # connect and attach to the machine's `stashbase` tmux session
+```
+
+These run your own `ssh`, so your SSH config, agent and jump hosts apply. `ssh install` checks the machine's platform and any existing install, asks before installing or updating (`--yes` skips the question), then runs the install script there; run it again to update the CLI. The machine needs `bash` and `curl` or `wget`, and must be x86_64 Linux for now.
+
+`ssh setup` runs the machine's own interactive setup, so the API key is typed into that machine; the key this CLI uses is never copied over. Use a key meant for that machine, preferably one with narrow access such as an environment account. Afterwards, `stashbase ssh open mybox` (or plain `ssh mybox`) and use `stashbase` there as usual.
+
+The agents themselves aren't installed by these commands. Install the one you use on the machine with its own installer and log in to it there, or use the Docker sandbox: its image (`stashbase agent docker build`) already includes Claude Code and Codex, so the machine only needs Docker. Log in to the agent once inside the sandbox (for example in `stashbase agent docker shell`); the login is kept for later runs.
+
+`ssh uninstall` lists exactly what it will delete, including any global agent profiles, and asks first (`--yes` skips the question). Deleting a stored key doesn't invalidate it, so revoke it in the dashboard too.
+
+`ssh open` runs `ssh -t mybox` and attaches to a tmux session named `stashbase`, creating it the first time, so agents keep running when you detach or the connection drops; open it again to get back to them. `--with screen|zellij` uses another multiplexer, `--with none` a plain shell. `--port 3000` makes a port on the machine, such as a dev server, reachable at `localhost:3000` on your computer while you're connected (repeatable; `8080:3000` picks a different local port). From a phone, set your SSH app's startup command to `tmux new -A -s stashbase` for the same session.
+
+Use one machine per developer. A machine shared by several Linux users doesn't keep them apart: members of the `docker` group are effectively root, so they can read each other's keys and files.
+
 ### Windows
 
 For general commands, use the native Windows CLI via [Scoop](https://scoop.sh):

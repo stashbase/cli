@@ -13,5 +13,6 @@ pub mod scans;
 pub mod secrets;
 pub mod setup;
 pub mod shared;
+pub mod ssh;
 pub mod telemetry;
 pub mod webhooks;

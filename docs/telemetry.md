@@ -7,11 +7,11 @@ people get stuck.
 
 ## What is sent
 
-One event per run of these nine commands only, which show whether people get set up, use
-their secrets, adopt the scanner or the Docker backend, and reach a protected agent run:
-`setup`, `pull`, `push`, `run`, `secrets schema pull`, `scan install`, `agent init`,
-`agent run` and `agent docker build`. Every other command sends nothing, including the rest
-of `secrets`, `scan` and `agent docker`.
+One event per run of these ten commands only, which show whether people get set up, use
+their secrets, adopt the scanner, the Docker backend or remote machines, and reach a
+protected agent run: `setup`, `pull`, `push`, `run`, `secrets schema pull`, `scan install`,
+`agent init`, `agent run`, `agent docker build` and `ssh install`. Every other command sends
+nothing, including the rest of `secrets`, `scan`, `agent docker` and `ssh`.
 
 | Field | Meaning |
 |---|---|

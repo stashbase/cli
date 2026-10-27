@@ -785,6 +785,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         return Ok(Exit::failed(ErrorKind::Validation));
                     };
 
+                    if !silent {
+                        if let Some(hint) = crate::handlers::ssh::detached_agent_hint(
+                            |name| std::env::var(name).ok(),
+                            std::io::IsTerminal::is_terminal(&std::io::stdin()),
+                        ) {
+                            eprintln!("{} {hint}", "Note:".yellow_if_tty_stderr());
+                        }
+                    }
                     profile.sandbox.backend =
                         profile.sandbox.backend.with_cli_override(agent_run.docker_sandbox);
                     if let Some(image) = &agent_run.docker_image {
@@ -1484,6 +1492,9 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 .await
                 .into_exit(),
             EntityType::Open => handle_open_dashboard(api_key, silent).await.into_exit(),
+            EntityType::Ssh(cmd) => {
+                crate::handlers::ssh::handle_ssh_command(cmd).into_exit()
+            }
             EntityType::Generate(_) => unreachable!(),
             EntityType::Doctor(_) => unreachable!(),
         };
