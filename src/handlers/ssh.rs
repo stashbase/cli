@@ -195,8 +195,11 @@ fn open_script(multiplexer: Multiplexer) -> Option<String> {
         Multiplexer::Zellij => ("zellij", format!("zellij attach --create {SESSION}")),
         Multiplexer::None => return None,
     };
+    // A terminal the machine has no terminfo for (Ghostty's `xterm-ghostty`,
+    // kitty's `xterm-kitty`, ...) makes tmux and screen refuse to start.
     Some(format!(
-        "if command -v {binary} >/dev/null 2>&1; then exec {attach}; fi\n\
+        "if command -v infocmp >/dev/null 2>&1 && ! infocmp \"$TERM\" >/dev/null 2>&1; then export TERM=xterm-256color; fi\n\
+         if command -v {binary} >/dev/null 2>&1; then exec {attach}; fi\n\
          echo '{binary} is not installed here, so this is a plain shell: agents stop if the connection drops. Install {binary} to keep them running.' >&2\n\
          exec \"${{SHELL:-sh}}\" -l\n"
     ))
@@ -788,6 +791,15 @@ mod tests {
         for bad in ["", "0", "70000", "abc", "8080:", ":3000", "1:2:3"] {
             assert!(port_forward(bad).is_err(), "{bad} should be rejected");
         }
+    }
+
+    #[test]
+    fn open_falls_back_to_a_known_terminal_before_attaching() {
+        let tmux = open_script(Multiplexer::Tmux).unwrap();
+        let fallback = tmux
+            .find("! infocmp \"$TERM\" >/dev/null 2>&1; then export TERM=xterm-256color; fi")
+            .unwrap();
+        assert!(fallback < tmux.find("exec tmux").unwrap());
     }
 
     #[test]
