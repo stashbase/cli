@@ -181,18 +181,29 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
     }
 }
 
-/// Session name `ssh open` attaches to, so every connection lands in the
-/// same place.
-const SESSION: &str = "stashbase";
+/// Checks `--session`: tmux turns `.` and `:` into `_` and screen and
+/// zellij have their own rules, so only names all three keep as typed.
+fn validate_session(name: &str) -> Result<()> {
+    let valid = !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        bail!("'{name}' is not a valid session name: use letters, digits, `-` and `_`.");
+    }
+    Ok(())
+}
 
-/// Remote command that attaches to the `stashbase` session of `multiplexer`,
-/// creating it if needed; without the multiplexer it says so and opens a
-/// login shell.
-fn open_script(multiplexer: Multiplexer) -> Option<String> {
+/// Remote command that attaches to `session` of `multiplexer`, creating it
+/// if needed, so every connection with the same name lands in the same
+/// place; without the multiplexer it says so and opens a login shell.
+fn open_script(multiplexer: Multiplexer, session: &str) -> Option<String> {
     let (binary, attach) = match multiplexer {
-        Multiplexer::Tmux => ("tmux", format!("tmux new-session -A -s {SESSION}")),
-        Multiplexer::Screen => ("screen", format!("screen -xRR -S {SESSION}")),
-        Multiplexer::Zellij => ("zellij", format!("zellij attach --create {SESSION}")),
+        Multiplexer::Tmux => ("tmux", format!("tmux new-session -A -s {session}")),
+        Multiplexer::Screen => ("screen", format!("screen -xRR -S {session}")),
+        Multiplexer::Zellij => ("zellij", format!("zellij attach --create {session}")),
         Multiplexer::None => return None,
     };
     // A terminal the machine has no terminfo for (Ghostty's `xterm-ghostty`,
@@ -205,10 +216,12 @@ fn open_script(multiplexer: Multiplexer) -> Option<String> {
     ))
 }
 
-/// Connects with the user's own `ssh` and attaches to the `stashbase`
-/// session; detaching or a dropped connection leaves it running.
+/// Connects with the user's own `ssh` and attaches to the session (named
+/// `stashbase` by default); detaching or a dropped connection leaves it
+/// running.
 fn open(cmd: SshOpen) -> Result<()> {
     let host = cmd.host;
+    validate_session(&cmd.session)?;
     let forwards = cmd
         .ports
         .iter()
@@ -223,7 +236,7 @@ fn open(cmd: SshOpen) -> Result<()> {
     // Keepalives stop NAT and cloud firewalls from cutting an idle session,
     // such as one where an agent works quietly for a long time.
     command.args(["-o", "ServerAliveInterval=30", "-t", &host]);
-    if let Some(script) = open_script(cmd.multiplexer) {
+    if let Some(script) = open_script(cmd.multiplexer, &cmd.session) {
         command.arg(sh_command(&script, &[]));
     }
     let status = command.status().context("Could not start `ssh`")?;
@@ -795,7 +808,7 @@ mod tests {
 
     #[test]
     fn open_falls_back_to_a_known_terminal_before_attaching() {
-        let tmux = open_script(Multiplexer::Tmux).unwrap();
+        let tmux = open_script(Multiplexer::Tmux, "stashbase").unwrap();
         let fallback = tmux
             .find("! infocmp \"$TERM\" >/dev/null 2>&1; then export TERM=xterm-256color; fi")
             .unwrap();
@@ -803,18 +816,40 @@ mod tests {
     }
 
     #[test]
-    fn open_attaches_or_creates_the_stashbase_session() {
-        let tmux = open_script(Multiplexer::Tmux).unwrap();
+    fn open_attaches_or_creates_the_named_session() {
+        let tmux = open_script(Multiplexer::Tmux, "stashbase").unwrap();
         assert!(tmux.contains("command -v tmux"));
         assert!(tmux.contains("exec tmux new-session -A -s stashbase"));
         assert!(tmux.contains("exec \"${SHELL:-sh}\" -l"));
-        assert!(open_script(Multiplexer::Screen)
+        assert!(open_script(Multiplexer::Tmux, "work")
             .unwrap()
-            .contains("exec screen -xRR -S stashbase"));
-        assert!(open_script(Multiplexer::Zellij)
+            .contains("exec tmux new-session -A -s work"));
+        assert!(open_script(Multiplexer::Screen, "work")
             .unwrap()
-            .contains("exec zellij attach --create stashbase"));
-        assert_eq!(open_script(Multiplexer::None), None);
+            .contains("exec screen -xRR -S work"));
+        assert!(open_script(Multiplexer::Zellij, "work")
+            .unwrap()
+            .contains("exec zellij attach --create work"));
+        assert_eq!(open_script(Multiplexer::None, "work"), None);
+    }
+
+    #[test]
+    fn session_names_are_kept_to_what_every_multiplexer_accepts() {
+        for name in ["stashbase", "work", "api-fix_2"] {
+            assert!(validate_session(name).is_ok(), "{name} should be accepted");
+        }
+        for name in [
+            "",
+            "-x",
+            "a.b",
+            "a:b",
+            "a b",
+            "a;rm",
+            "a'b",
+            &"x".repeat(65),
+        ] {
+            assert!(validate_session(name).is_err(), "{name} should be rejected");
+        }
     }
 
     #[test]
