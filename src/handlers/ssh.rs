@@ -380,7 +380,13 @@ fn setup(cmd: SshSetup) -> Result<()> {
         .status()
         .context("Could not start `ssh`")?;
     match status.code() {
-        Some(0) => Ok(()),
+        Some(0) => {
+            eprintln!(
+                "\n{} stashbase is set up on {host}. Open a session there with: stashbase ssh open {host}",
+                "Done:".green_if_tty_stderr()
+            );
+            Ok(())
+        }
         Some(NOT_INSTALLED) => {
             bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
         }
