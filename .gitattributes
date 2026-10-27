@@ -1,0 +1,3 @@
+# Shell scripts run on Unix machines and `ssh install` embeds install.sh
+# into the binary, so keep LF endings even in a Windows checkout.
+*.sh text eol=lf
