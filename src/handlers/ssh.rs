@@ -356,14 +356,18 @@ pub fn detached_agent_hint(
 }
 
 /// Remote command for `ssh setup`: the machine's own interactive setup, then
-/// its `doctor`, so a key that doesn't work or a missing tool shows up now
-/// rather than on the first run. Doctor's findings don't fail the setup.
+/// its `doctor` and `agent docker doctor`, so a key that doesn't work or a
+/// missing Docker shows up now, with its fix, rather than on the first run.
+/// The doctors' findings don't fail the setup.
 fn setup_script() -> String {
     format!(
         "{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\n\
          \"$bin\" setup || exit $?\n\
          echo\n\
          \"$bin\" doctor --auth-check\n\
+         echo\n\
+         echo 'Docker sandbox (needed only for agent profiles with backend = \"docker\"):'\n\
+         \"$bin\" agent docker doctor\n\
          exit 0\n"
     )
 }
@@ -382,7 +386,8 @@ fn setup(cmd: SshSetup) -> Result<()> {
     match status.code() {
         Some(0) => {
             eprintln!(
-                "\n{} stashbase is set up on {host}. Open a session there with: stashbase ssh open {host}",
+                "\n{} stashbase is set up on {host}. Open a session there with: stashbase ssh open {host}\n\
+                 Then log in to your agent there once (for the Docker sandbox, in `stashbase agent docker shell`).",
                 "Done:".green_if_tty_stderr()
             );
             Ok(())
@@ -733,7 +738,8 @@ mod tests {
         let script = setup_script();
         let setup = script.find("\"$bin\" setup || exit $?").unwrap();
         let doctor = script.find("\"$bin\" doctor --auth-check").unwrap();
-        assert!(setup < doctor);
+        let docker = script.find("\"$bin\" agent docker doctor").unwrap();
+        assert!(setup < doctor && doctor < docker);
         assert!(script.ends_with("exit 0\n"));
     }
 
