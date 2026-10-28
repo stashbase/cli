@@ -113,7 +113,9 @@ impl Connection {
         let mut command = ssh();
         command.args(self.control_options("no"));
         if tty {
-            command.arg("-t");
+            // `-q` drops ssh's "Shared connection to <address> closed." at the
+            // end; login errors were already shown when the connection opened.
+            command.args(["-t", "-q"]);
         }
         command.args([&self.host, remote_command]);
         command
