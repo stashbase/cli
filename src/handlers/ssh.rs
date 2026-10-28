@@ -448,11 +448,10 @@ fn doctor_script() -> String {
 fn doctor(cmd: SshDoctor) -> Result<()> {
     let host = cmd.host;
     let ssh = Connection::open(&host)?;
-    let found = ssh.output(&sh_command(
-        &format!("{LOCATE_BINARY}[ -n \"$bin\" ] && \"$bin\" --version\ntrue\n"),
-        &[],
-    ))?;
-    let Some(remote) = found.split_whitespace().last() else {
+    let term = std::env::var("TERM").unwrap_or_default();
+    let found = ssh.output(&sh_command(&session_probe(), std::slice::from_ref(&term)))?;
+    let found = SessionProbe::parse(&found);
+    let Some(remote) = found.version.as_deref() else {
         bail!(
             "stashbase is not installed on {host}. Install it with: stashbase ssh install {host}"
         );
@@ -464,6 +463,15 @@ fn doctor(cmd: SshDoctor) -> Result<()> {
             "{} {host} runs an older stashbase. Update it with: stashbase ssh install {host}",
             "Warning:".yellow_if_tty_stderr()
         );
+    }
+    eprintln!("\nRemote sessions (stashbase ssh open):");
+    for (ready, message) in found.findings(&host, &term) {
+        let mark = if ready {
+            "✓".green_if_tty_stderr()
+        } else {
+            "!".yellow_if_tty_stderr()
+        };
+        eprintln!("{mark} {message}");
     }
     eprintln!();
 
@@ -481,6 +489,78 @@ fn doctor(cmd: SshDoctor) -> Result<()> {
         }
         Some(255) => Err(connect_error(&host, status)),
         _ => bail!("The checks on {host} found failures; see above for how to fix them."),
+    }
+}
+
+/// POSIX sh for `ssh doctor`'s first round trip, given the local `$TERM` as
+/// `$1`: the CLI's version, tmux's, and whether the machine has terminfo for
+/// that terminal. `term=` is left out when there's no `infocmp` to ask.
+fn session_probe() -> String {
+    format!(
+        "{LOCATE_BINARY}{}",
+        r#"[ -n "$bin" ] && echo "version=$("$bin" --version 2>/dev/null)"
+command -v tmux >/dev/null 2>&1 && echo "tmux=$(tmux -V 2>/dev/null)"
+if [ -n "$1" ] && command -v infocmp >/dev/null 2>&1; then
+  if infocmp "$1" >/dev/null 2>&1; then echo term=known; else echo term=unknown; fi
+fi
+true
+"#
+    )
+}
+
+/// What `ssh doctor` found about sessions on the machine.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SessionProbe {
+    /// `stashbase --version` without the name, such as `0.24.0`.
+    version: Option<String>,
+    /// `tmux -V`, such as `tmux 3.5a`.
+    tmux: Option<String>,
+    /// Whether the machine has terminfo for the local terminal; `None` when
+    /// it couldn't tell.
+    term_known: Option<bool>,
+}
+
+impl SessionProbe {
+    fn parse(output: &str) -> Self {
+        let mut probe = Self::default();
+        for line in output.lines() {
+            let Some((name, value)) = line.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            match name {
+                "version" => {
+                    probe.version = value.split_whitespace().last().map(str::to_owned);
+                }
+                "tmux" if !value.is_empty() => probe.tmux = Some(value.to_owned()),
+                "term" => probe.term_known = Some(value == "known"),
+                _ => {}
+            }
+        }
+        probe
+    }
+
+    /// What `ssh open` will find there, as (ready, message) pairs. Only
+    /// hints: `ssh open` falls back to a plain shell or `xterm-256color`.
+    fn findings(&self, host: &str, term: &str) -> Vec<(bool, String)> {
+        let mut findings = vec![match &self.tmux {
+            Some(tmux) => (true, tmux.clone()),
+            None => (
+                false,
+                "tmux is not installed, so `ssh open` gives a plain shell and agents stop if the connection drops. Install it, e.g. `sudo apt-get install tmux`".to_owned(),
+            ),
+        }];
+        match self.term_known {
+            Some(true) => findings.push((true, format!("Terminal {term} is known"))),
+            Some(false) => findings.push((
+                false,
+                format!(
+                    "Terminal {term} is unknown there, so `ssh open` falls back to xterm-256color. Copy it once with:\n  infocmp -x {term} | ssh {host} -- tic -x -"
+                ),
+            )),
+            None => {}
+        }
+        findings
     }
 }
 
@@ -880,6 +960,35 @@ mod tests {
         let docker = script.find("\"$bin\" agent docker doctor").unwrap();
         assert!(doctor < docker);
         assert!(script.ends_with("exit $checks\n"));
+    }
+
+    #[test]
+    fn session_probe_reads_version_tmux_and_terminal() {
+        let found = SessionProbe::parse("version=stashbase 0.24.0\ntmux=tmux 3.5a\nterm=unknown\n");
+        assert_eq!(
+            found,
+            SessionProbe {
+                version: Some("0.24.0".to_owned()),
+                tmux: Some("tmux 3.5a".to_owned()),
+                term_known: Some(false),
+            }
+        );
+        let findings = found.findings("mybox", "xterm-ghostty");
+        assert_eq!(findings[0], (true, "tmux 3.5a".to_owned()));
+        assert!(!findings[1].0);
+        assert!(findings[1]
+            .1
+            .ends_with("infocmp -x xterm-ghostty | ssh mybox -- tic -x -"));
+    }
+
+    #[test]
+    fn session_probe_flags_missing_tmux_and_skips_an_unchecked_terminal() {
+        let found = SessionProbe::parse("version=stashbase 0.24.0\n");
+        assert_eq!(found.version.as_deref(), Some("0.24.0"));
+        let findings = found.findings("mybox", "xterm-ghostty");
+        assert_eq!(findings.len(), 1);
+        assert!(!findings[0].0 && findings[0].1.starts_with("tmux is not installed"));
+        assert_eq!(SessionProbe::parse("").version, None);
     }
 
     #[test]
