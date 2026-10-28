@@ -507,10 +507,14 @@ fn install(cmd: SshInstall) -> Result<()> {
         bail!("{host} runs {}, {reason}", found.platform);
     }
 
-    let question = install_question(&host, &found);
+    let (found_line, question) = install_question(&host, &found);
     if !cmd.yes {
+        let found_line = found_line.map(|line| line + " ").unwrap_or_default();
         if !std::io::stdin().is_terminal() {
-            bail!("{question} Pass --yes to proceed without confirmation.");
+            bail!("{found_line}{question} Pass --yes to proceed without confirmation.");
+        }
+        if !found_line.is_empty() {
+            eprintln!("{}", found_line.trim_end());
         }
         if confirm_opt(&question) != Some(true) {
             return Ok(());
@@ -586,15 +590,21 @@ impl Probe {
     }
 }
 
-/// What `ssh install` asks before installing or updating.
-fn install_question(host: &str, probe: &Probe) -> String {
+/// What `ssh install` found, if anything, and what it then asks. The
+/// question stays short, so it fits on one line: a question that wraps is
+/// drawn again under itself once answered.
+fn install_question(host: &str, probe: &Probe) -> (Option<String>, String) {
     let platform = &probe.platform;
     match (probe.bin.as_deref(), probe.version.as_deref()) {
-        (Some(bin), Some(version)) => {
-            format!("Update stashbase on {host} ({version} at {bin}) to the latest release?")
-        }
-        (Some(bin), None) => format!("Replace {bin} on {host} with the latest stashbase?"),
-        _ => format!("Install stashbase on {host} ({platform})?"),
+        (Some(bin), Some(version)) => (
+            Some(format!("{host} has {version} at {bin}.")),
+            "Update it to the latest release?".to_owned(),
+        ),
+        (Some(bin), None) => (
+            Some(format!("{host} has {bin}, which doesn't report a version.")),
+            "Replace it with the latest stashbase?".to_owned(),
+        ),
+        _ => (None, format!("Install stashbase on {host} ({platform})?")),
     }
 }
 
@@ -1328,21 +1338,30 @@ mod tests {
         let probe = |output: &str| Probe::parse(output);
         assert_eq!(
             install_question("mybox", &probe("Linux x86_64\n")),
-            "Install stashbase on mybox (Linux x86_64)?"
+            (
+                None,
+                "Install stashbase on mybox (Linux x86_64)?".to_owned()
+            )
         );
         assert_eq!(
             install_question(
                 "mybox",
                 &probe("Linux x86_64\nbin=/usr/local/bin/stashbase\nversion=stashbase 0.22.0\n")
             ),
-            "Update stashbase on mybox (stashbase 0.22.0 at /usr/local/bin/stashbase) to the latest release?"
+            (
+                Some("mybox has stashbase 0.22.0 at /usr/local/bin/stashbase.".to_owned()),
+                "Update it to the latest release?".to_owned()
+            )
         );
         assert_eq!(
             install_question(
                 "mybox",
                 &probe("Linux x86_64\nbin=/opt/sb/stashbase\nversion=\n")
             ),
-            "Replace /opt/sb/stashbase on mybox with the latest stashbase?"
+            (
+                Some("mybox has /opt/sb/stashbase, which doesn't report a version.".to_owned()),
+                "Replace it with the latest stashbase?".to_owned()
+            )
         );
     }
 
