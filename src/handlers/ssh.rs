@@ -45,9 +45,12 @@ const NOT_INSTALLED: i32 = 3;
 
 /// The user's `ssh`, giving up on a machine that doesn't answer (a stale
 /// address, a stopped VM) instead of hanging with nothing on screen.
+/// Keepalives stop NAT and cloud firewalls from cutting a quiet connection,
+/// such as `ssh open`'s while an agent works for a long time; on a shared
+/// connection they're the master's.
 fn ssh() -> Command {
     let mut command = Command::new("ssh");
-    command.args(["-o", "ConnectTimeout=15"]);
+    command.args(["-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=30"]);
     command
 }
 
@@ -268,7 +271,7 @@ pub fn handle_ssh_command(cmd: SshCommand, json: bool, silent: bool) -> Result<(
         }
         SshSubcommand::Open(args) => {
             validate_host(&args.host)?;
-            open(args)
+            open(args, silent)
         }
         SshSubcommand::Sessions(args) => match args.subcommand {
             SshSessionsSubcommand::List(args) => {
@@ -556,7 +559,7 @@ fn open_script(multiplexer: Multiplexer, session: &str) -> Option<String> {
 /// Connects with the user's own `ssh` and attaches to the session (named
 /// `stashbase` by default); detaching or a dropped connection leaves it
 /// running.
-fn open(cmd: SshOpen) -> Result<()> {
+fn open(cmd: SshOpen, silent: bool) -> Result<()> {
     let host = cmd.host;
     validate_session(&cmd.session)?;
     let forwards = cmd
@@ -564,22 +567,38 @@ fn open(cmd: SshOpen) -> Result<()> {
         .iter()
         .map(|spec| port_forward(spec))
         .collect::<Result<Vec<_>>>()?;
-    eprintln!("Connecting to {host}…");
-    let mut command = ssh();
+    // ssh would only warn, and `-q` below hides that, leaving the session
+    // without the forward.
     for (local, remote) in &forwards {
-        eprintln!("Forwarding localhost:{local} to port {remote} on {host}");
+        if std::net::TcpListener::bind(("127.0.0.1", *local)).is_err() {
+            bail!(
+                "Port {local} on this computer is already in use. Pick another local port, e.g. --port 8080:{remote}"
+            );
+        }
+    }
+    // The shared connection, so connecting shows the same spinner (or
+    // prompts) as the other commands; the session then runs over it.
+    let ssh = Connection::open(&host, silent)?;
+    let mut command = self::ssh();
+    command.args(ssh.control_options("no"));
+    for (local, remote) in &forwards {
+        if !silent {
+            eprintln!("Forwarding localhost:{local} to port {remote} on {host}");
+        }
         command.args(["-L", &format!("127.0.0.1:{local}:localhost:{remote}")]);
     }
-    // Keepalives stop NAT and cloud firewalls from cutting an idle session,
-    // such as one where an agent works quietly for a long time.
-    command.args(["-o", "ServerAliveInterval=30", "-t", &host]);
+    // `-q`: no "Shared connection to <address> closed." on leaving.
+    command.args(["-t", "-q", &host]);
     if let Some(script) = open_script(cmd.multiplexer, &cmd.session) {
         command.arg(sh_command(&script, &[]));
     }
     let status = command.status().context("Could not start `ssh`")?;
-    // 255 is ssh's own failure; anything else is how the remote shell ended.
+    // 255 is ssh's own failure, here after connecting: the connection
+    // dropped. Anything else is how the remote shell ended.
     if status.code() == Some(255) {
-        return Err(connect_error(&host, status));
+        bail!(
+            "The connection to {host} was lost. The session keeps running there; open it again with: stashbase ssh open {host}"
+        );
     }
     Ok(())
 }
