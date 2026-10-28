@@ -19,7 +19,7 @@ pub enum SshSubcommand {
     Uninstall(SshUninstall),
     /// Connect to a machine and attach to its `stashbase` tmux session
     Open(SshOpen),
-    /// List the terminal sessions on a machine that `ssh open` can attach to
+    /// List or close the terminal sessions on a machine that `ssh open` attaches to
     Sessions(SshSessions),
 }
 
@@ -88,8 +88,23 @@ pub struct SshOpen {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "ssh sessions <HOST> [OPTIONS]")]
+#[command(override_usage = "ssh sessions <COMMAND> [OPTIONS]")]
 pub struct SshSessions {
+    #[clap(subcommand)]
+    pub subcommand: SshSessionsSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SshSessionsSubcommand {
+    /// List the sessions on a machine that `ssh open --session` attaches to
+    List(SshSessionsList),
+    /// Close a session on a machine, stopping everything running in it
+    Close(SshSessionsClose),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "ssh sessions list <HOST> [OPTIONS]")]
+pub struct SshSessionsList {
     /// Machine to list the sessions of, as you would pass it to `ssh`
     #[arg(value_name = "HOST")]
     pub host: String,
@@ -97,6 +112,26 @@ pub struct SshSessions {
     /// Terminal multiplexer whose sessions to list
     #[arg(long = "with", value_enum, default_value = "tmux")]
     pub multiplexer: Multiplexer,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "ssh sessions close <HOST> <NAME> [OPTIONS]")]
+pub struct SshSessionsClose {
+    /// Machine the session is on, as you would pass it to `ssh`
+    #[arg(value_name = "HOST")]
+    pub host: String,
+
+    /// Session to close, as `ssh sessions list` shows it
+    #[arg(value_name = "NAME")]
+    pub name: String,
+
+    /// Terminal multiplexer the session belongs to
+    #[arg(long = "with", value_enum, default_value = "tmux")]
+    pub multiplexer: Multiplexer,
+
+    /// Proceed without confirmation
+    #[arg(long = "yes", short = 'y')]
+    pub yes: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

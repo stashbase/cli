@@ -12,8 +12,8 @@ use anyhow::{bail, Context, Result};
 
 use crate::{
     cmd::ssh::{
-        Multiplexer, SshCommand, SshDoctor, SshInstall, SshOpen, SshSessions, SshSetup,
-        SshSubcommand, SshUninstall,
+        Multiplexer, SshCommand, SshDoctor, SshInstall, SshOpen, SshSessionsClose, SshSessionsList,
+        SshSessionsSubcommand, SshSetup, SshSubcommand, SshUninstall,
     },
     handlers::run::entry::shell_quote,
     utils::{
@@ -246,10 +246,89 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
             validate_host(&args.host)?;
             open(args)
         }
-        SshSubcommand::Sessions(args) => {
-            validate_host(&args.host)?;
-            sessions(args)
+        SshSubcommand::Sessions(args) => match args.subcommand {
+            SshSessionsSubcommand::List(args) => {
+                validate_host(&args.host)?;
+                list_sessions(args)
+            }
+            SshSessionsSubcommand::Close(args) => {
+                validate_host(&args.host)?;
+                close_session(args)
+            }
+        },
+    }
+}
+
+/// Exit code of `close_script` when there's no session by that name.
+const NO_SUCH_SESSION: i32 = 4;
+
+/// The multiplexer's name and the remote command for `ssh sessions close`,
+/// given the session name as `$1`: closes it, with everything running in
+/// it, or exits `NO_SUCH_SESSION`.
+fn close_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
+    // tmux's `=` matches the whole name, not a prefix of another session's.
+    // zellij's `delete-session --force` also stops a running session and
+    // keeps it from being offered for resurrection.
+    let (binary, close) = match multiplexer {
+        Multiplexer::Tmux => (
+            "tmux",
+            "tmux has-session -t \"=$1\" 2>/dev/null || exit {missing}\ntmux kill-session -t \"=$1\"",
+        ),
+        Multiplexer::Screen => (
+            "screen",
+            "screen -ls | grep -qE \"^[[:space:]]+[0-9]+\\\\.$1[[:space:]]\" || exit {missing}\nscreen -S \"$1\" -X quit",
+        ),
+        Multiplexer::Zellij => (
+            "zellij",
+            "zellij list-sessions --short 2>/dev/null | grep -qx \"$1\" || exit {missing}\nzellij delete-session --force \"$1\"",
+        ),
+        Multiplexer::None => return None,
+    };
+    Some((
+        binary,
+        format!(
+            "command -v {binary} >/dev/null 2>&1 || exit {NOT_INSTALLED}\n{}\n",
+            close.replace("{missing}", &NO_SUCH_SESSION.to_string())
+        ),
+    ))
+}
+
+/// Closes a session `ssh open --session` made, after asking: it stops the
+/// agents and anything else running in it.
+fn close_session(cmd: SshSessionsClose) -> Result<()> {
+    let host = cmd.host;
+    let name = cmd.name;
+    validate_session(&name)?;
+    let Some((binary, script)) = close_script(cmd.multiplexer) else {
+        bail!("Without a multiplexer (`--with none`) there are no sessions to close.");
+    };
+    let question = format!(
+        "Close {binary} session '{name}' on {host}? Everything running in it, such as agents, stops."
+    );
+    if !cmd.yes {
+        if !std::io::stdin().is_terminal() {
+            bail!("{question} Pass --yes to proceed without confirmation.");
         }
+        if confirm_opt(&question) != Some(true) {
+            return Ok(());
+        }
+    }
+    let ssh = Connection::open(&host)?;
+    let status = ssh
+        .command(false, &sh_command(&script, std::slice::from_ref(&name)))
+        .stdin(Stdio::null())
+        .status()
+        .context("Could not start `ssh`")?;
+    match status.code() {
+        Some(0) => {
+            eprintln!("{} Closed session '{name}' on {host}.", "Done:".green_if_tty_stderr());
+            Ok(())
+        }
+        Some(NOT_INSTALLED) => bail!("{binary} is not installed on {host}."),
+        Some(NO_SUCH_SESSION) => bail!(
+            "There's no {binary} session '{name}' on {host}. List them with: stashbase ssh sessions list {host}"
+        ),
+        _ => bail!("Closing session '{name}' on {host} failed (ssh exited with {status})."),
     }
 }
 
@@ -275,7 +354,7 @@ fn sessions_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
 }
 
 /// Lists the sessions `ssh open --session` can attach to.
-fn sessions(cmd: SshSessions) -> Result<()> {
+fn list_sessions(cmd: SshSessionsList) -> Result<()> {
     let host = cmd.host;
     let Some((binary, script)) = sessions_script(cmd.multiplexer) else {
         bail!("Without a multiplexer (`--with none`) there are no sessions to list.");
@@ -305,7 +384,10 @@ fn sessions(cmd: SshSessions) -> Result<()> {
         Multiplexer::Tmux => String::new(),
         _ => format!(" --with {binary}"),
     };
-    eprintln!("\nAttach with: stashbase ssh open {host}{with} --session <name>");
+    eprintln!(
+        "\nAttach with: stashbase ssh open {host}{with} --session <name>\n\
+         Close with: stashbase ssh sessions close {host} <name>{with}"
+    );
     Ok(())
 }
 
@@ -1124,6 +1206,25 @@ mod tests {
         assert_eq!(sessions_script(Multiplexer::Screen).unwrap().0, "screen");
         assert_eq!(sessions_script(Multiplexer::Zellij).unwrap().0, "zellij");
         assert!(sessions_script(Multiplexer::None).is_none());
+    }
+
+    #[test]
+    fn close_checks_the_exact_session_before_closing_it() {
+        let (binary, script) = close_script(Multiplexer::Tmux).unwrap();
+        assert_eq!(binary, "tmux");
+        let check = script
+            .find(&format!(
+                "tmux has-session -t \"=$1\" 2>/dev/null || exit {NO_SUCH_SESSION}"
+            ))
+            .unwrap();
+        let kill = script.find("tmux kill-session -t \"=$1\"").unwrap();
+        assert!(check < kill);
+        for multiplexer in [Multiplexer::Screen, Multiplexer::Zellij] {
+            let (_, script) = close_script(multiplexer).unwrap();
+            assert!(script.contains(&format!("|| exit {NO_SUCH_SESSION}")));
+            assert!(!script.contains("{missing}"));
+        }
+        assert!(close_script(Multiplexer::None).is_none());
     }
 
     #[test]
