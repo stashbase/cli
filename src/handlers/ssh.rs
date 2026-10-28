@@ -259,7 +259,7 @@ pub fn handle_ssh_command(cmd: SshCommand, json: bool, silent: bool) -> Result<(
         }
         SshSubcommand::Setup(args) => {
             validate_host(&args.host)?;
-            setup(args)
+            setup(args, silent)
         }
         SshSubcommand::Doctor(args) => {
             validate_host(&args.host)?;
@@ -939,14 +939,14 @@ fn version_is_older(a: &str, b: &str) -> bool {
 }
 
 /// Runs the machine's own interactive `stashbase setup` in a terminal session.
-fn setup(cmd: SshSetup) -> Result<()> {
+fn setup(cmd: SshSetup, silent: bool) -> Result<()> {
     let host = cmd.host;
     if !std::io::stdin().is_terminal() {
         bail!("`stashbase ssh setup` is interactive and needs a terminal.");
     }
-    eprintln!("Connecting to {host}…");
-    let status = ssh()
-        .args(["-t", &host, &sh_command(&setup_script(), &[])])
+    let ssh = Connection::open(&host, silent)?;
+    let status = ssh
+        .command(true, &sh_command(&setup_script(), &[]))
         .status()
         .context("Could not start `ssh`")?;
     match status.code() {
@@ -961,7 +961,8 @@ fn setup(cmd: SshSetup) -> Result<()> {
         Some(NOT_INSTALLED) => {
             bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
         }
-        Some(255) => Err(connect_error(&host, status)),
+        // ssh's own failure, after connecting: the connection dropped.
+        Some(255) => bail!("The connection to {host} was lost during setup. Run it again with: stashbase ssh setup {host}"),
         _ => bail!("Setup on {host} failed (ssh exited with {status})."),
     }
 }
