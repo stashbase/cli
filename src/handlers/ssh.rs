@@ -12,8 +12,8 @@ use anyhow::{bail, Context, Result};
 
 use crate::{
     cmd::ssh::{
-        Multiplexer, SshCommand, SshDoctor, SshInstall, SshOpen, SshSetup, SshSubcommand,
-        SshUninstall,
+        Multiplexer, SshCommand, SshDoctor, SshInstall, SshOpen, SshSessions, SshSetup,
+        SshSubcommand, SshUninstall,
     },
     handlers::run::entry::shell_quote,
     utils::{interaction::confirm_opt, output::ColorizeIfColoredOutput},
@@ -185,7 +185,68 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
             validate_host(&args.host)?;
             open(args)
         }
+        SshSubcommand::Sessions(args) => {
+            validate_host(&args.host)?;
+            sessions(args)
+        }
     }
+}
+
+/// The multiplexer's name and the remote command for `ssh sessions`: its own
+/// list, or nothing when it has no sessions; exits `NOT_INSTALLED` without
+/// it.
+fn sessions_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
+    // Each exits non-zero with only a message when there are no sessions,
+    // and screen lists its sessions between other lines.
+    let (binary, list) = match multiplexer {
+        Multiplexer::Tmux => ("tmux", "tmux list-sessions 2>/dev/null"),
+        Multiplexer::Screen => ("screen", "screen -ls | grep -E '^[[:space:]]+[0-9]+\\.'"),
+        Multiplexer::Zellij => (
+            "zellij",
+            "zellij list-sessions --no-formatting 2>/dev/null || zellij list-sessions 2>/dev/null",
+        ),
+        Multiplexer::None => return None,
+    };
+    Some((
+        binary,
+        format!("command -v {binary} >/dev/null 2>&1 || exit {NOT_INSTALLED}\n{list}\nexit 0\n"),
+    ))
+}
+
+/// Lists the sessions `ssh open --session` can attach to.
+fn sessions(cmd: SshSessions) -> Result<()> {
+    let host = cmd.host;
+    let Some((binary, script)) = sessions_script(cmd.multiplexer) else {
+        bail!("Without a multiplexer (`--with none`) there are no sessions to list.");
+    };
+    eprintln!("Connecting to {host}…");
+    let output = ssh()
+        .args([&host, &sh_command(&script, &[])])
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("Could not start `ssh`")?;
+    match output.status.code() {
+        Some(0) => {}
+        Some(NOT_INSTALLED) => bail!("{binary} is not installed on {host}."),
+        Some(255) => return Err(connect_error(&host, output.status)),
+        _ => bail!(
+            "Listing {binary} sessions on {host} failed (ssh exited with {}).",
+            output.status
+        ),
+    }
+    let list = String::from_utf8_lossy(&output.stdout);
+    if list.trim().is_empty() {
+        eprintln!("No {binary} sessions on {host}. Start one with: stashbase ssh open {host}");
+        return Ok(());
+    }
+    print!("{list}");
+    let with = match cmd.multiplexer {
+        Multiplexer::Tmux => String::new(),
+        _ => format!(" --with {binary}"),
+    };
+    eprintln!("\nAttach with: stashbase ssh open {host}{with} --session <name>");
+    Ok(())
 }
 
 /// Checks `--session`: tmux turns `.` and `:` into `_` and screen and
@@ -989,6 +1050,20 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert!(!findings[0].0 && findings[0].1.starts_with("tmux is not installed"));
         assert_eq!(SessionProbe::parse("").version, None);
+    }
+
+    #[test]
+    fn sessions_lists_with_the_multiplexer_open_attaches_with() {
+        let (binary, script) = sessions_script(Multiplexer::Tmux).unwrap();
+        assert_eq!(binary, "tmux");
+        assert!(script.starts_with(&format!(
+            "command -v tmux >/dev/null 2>&1 || exit {NOT_INSTALLED}\n"
+        )));
+        assert!(script.contains("tmux list-sessions"));
+        assert!(script.ends_with("exit 0\n"));
+        assert_eq!(sessions_script(Multiplexer::Screen).unwrap().0, "screen");
+        assert_eq!(sessions_script(Multiplexer::Zellij).unwrap().0, "zellij");
+        assert!(sessions_script(Multiplexer::None).is_none());
     }
 
     #[test]

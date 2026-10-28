@@ -136,6 +136,14 @@ wait "$client" 2>/dev/null || true
 run ssh "$host" "tmux list-sessions -F '#{session_name}'"
 check "open --session creates the named tmux session" "$(contains "e2e-work")"
 
+run "$local_bin" ssh sessions "$host"
+check "sessions lists the session open created" \
+  "$([ "$status" -eq 0 ] && contains "e2e-work:")"
+
+run "$local_bin" ssh sessions "$host" --with zellij
+check "sessions says when the multiplexer isn't installed" \
+  "$([ "$status" -ne 0 ] && contains "zellij is not installed on $host")"
+
 run "$local_bin" ssh open "$host" --session 'bad;name'
 check "open rejects an invalid session name" \
   "$([ "$status" -ne 0 ] && contains "is not a valid session name")"

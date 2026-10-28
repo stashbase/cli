@@ -19,6 +19,8 @@ pub enum SshSubcommand {
     Uninstall(SshUninstall),
     /// Connect to a machine and attach to its `stashbase` tmux session
     Open(SshOpen),
+    /// List the terminal sessions on a machine that `ssh open` can attach to
+    Sessions(SshSessions),
 }
 
 #[derive(Debug, Args)]
@@ -83,6 +85,18 @@ pub struct SshOpen {
     /// Repeatable
     #[arg(long = "port", value_name = "PORT")]
     pub ports: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "ssh sessions <HOST> [OPTIONS]")]
+pub struct SshSessions {
+    /// Machine to list the sessions of, as you would pass it to `ssh`
+    #[arg(value_name = "HOST")]
+    pub host: String,
+
+    /// Terminal multiplexer whose sessions to list
+    #[arg(long = "with", value_enum, default_value = "tmux")]
+    pub multiplexer: Multiplexer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

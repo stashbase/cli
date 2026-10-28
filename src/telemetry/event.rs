@@ -86,7 +86,8 @@ impl TrackedCommand {
                 SshSubcommand::Setup(_)
                 | SshSubcommand::Doctor(_)
                 | SshSubcommand::Uninstall(_)
-                | SshSubcommand::Open(_) => None,
+                | SshSubcommand::Open(_)
+                | SshSubcommand::Sessions(_) => None,
             },
             _ => None,
         }
