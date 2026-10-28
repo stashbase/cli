@@ -208,6 +208,8 @@ pub async fn handle_doctor_command(
 
     checks.push(check_binary("git", cmd.verbose));
     checks.push(check_binary("ssh-keygen", cmd.verbose));
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    checks.extend(sandbox_checks());
 
     if cmd.auth_check {
         match selected_api_key {
@@ -272,6 +274,51 @@ pub async fn handle_doctor_command(
     }
 
     Ok(report.status == DoctorStatus::Fail)
+}
+
+/// What confines a native `agent run` and the `secret_scan` hook's scan here,
+/// so a missing bubblewrap shows up before a run that needs it fails.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn sandbox_checks() -> Vec<DoctorCheck> {
+    use crate::handlers::run::{scan_sandbox, subprocess};
+
+    // Only where bubblewrap is missing: an installed one that can't run (no
+    // user namespaces, as in many containers) isn't fixed by installing it.
+    let missing_bubblewrap = cfg!(target_os = "linux")
+        && command_path("bwrap").is_none()
+        && command_path("bubblewrap").is_none();
+    let install_hint = if missing_bubblewrap {
+        "; install bubblewrap (e.g. `sudo apt-get install bubblewrap`)"
+    } else {
+        ""
+    };
+    let backend = subprocess::filesystem_backend();
+    let native = if backend.starts_with("unavailable") {
+        warn(
+            "Native sandbox",
+            format!(
+                "{backend}: profiles with filesystem rules can't run with the native backend{}",
+                if missing_bubblewrap {
+                    "; install bubblewrap (e.g. `sudo apt-get install bubblewrap`) or use the Docker backend"
+                } else {
+                    "; use the Docker backend"
+                }
+            ),
+        )
+    } else {
+        ok("Native sandbox", backend)
+    };
+    let hook = match scan_sandbox::unavailable_reason() {
+        Some(reason) => warn(
+            "Hook sandbox",
+            format!("{}{install_hint}", reason.trim_end_matches('.')),
+        ),
+        None => ok(
+            "Hook sandbox",
+            "the `secret_scan` hook can confine its scan",
+        ),
+    };
+    vec![native, hook]
 }
 
 fn check_binary(binary: &str, verbose: bool) -> DoctorCheck {

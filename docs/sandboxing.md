@@ -26,6 +26,8 @@ Paths use explicit prefixes: `~` for home, relative paths for the current direct
 - **Linux**: `systemd-run` or `bubblewrap` (automatic fallback)
 - **Windows and other unsupported platforms**: Validation fails closed; the run does not proceed with the native backend
 
+`stashbase doctor` shows which of these a run would use (`Native sandbox`) and whether the `secret_scan` hook can confine its scan (`Hook sandbox`), with what to install when one is missing.
+
 Glob and `re:` regex entries (see [Agent Profiles](agent-profiles.md#filesystem-network-restrictions-and-sandbox-backends)) are enforced differently per platform:
 - **macOS**: Seatbelt matches them natively on every access, including files created during the run.
 - **Linux**: they're expanded to concrete paths when the run starts, by walking the filesystem from the pattern's fixed prefix (hidden and gitignored files included). Files created during the run aren't covered. The walk stops after 200,000 entries per pattern and prints a warning, so keep a broad pattern like `re:^~/.*` from starting too high in the tree.
