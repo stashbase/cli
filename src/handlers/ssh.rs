@@ -86,7 +86,9 @@ struct Connection {
 }
 
 impl Connection {
-    fn open(host: &str) -> Result<Self> {
+    /// `silent` (the global `--silent`) leaves out the spinner and the
+    /// "Connecting" line, but never ssh's own prompts.
+    fn open(host: &str, silent: bool) -> Result<Self> {
         let mut connection = Self {
             host: host.to_owned(),
             control_dir: None,
@@ -104,11 +106,14 @@ impl Connection {
                 .create(&dir)
                 .with_context(|| format!("Could not create {}", dir.display()))?;
             connection.control_dir = Some(dir);
-            if std::io::stderr().is_terminal() && connection.connect_without_prompts()? {
+            let terminal = std::io::stderr().is_terminal();
+            if terminal && connection.connect_without_prompts(silent)? {
                 return Ok(connection);
             }
             // Not a spinner: ssh may ask for a password or to trust the host.
-            eprintln!("Connecting to {host}…");
+            if !silent {
+                eprintln!("Connecting to {host}…");
+            }
             let status = ssh()
                 .args(connection.control_options("yes"))
                 .args(["-o", "ControlPersist=120", "-f", "-N", host])
@@ -118,21 +123,29 @@ impl Connection {
             if !status.success() {
                 return Err(connect_error(host, status));
             }
+            // Keeps the output apart from ssh's prompts, as after a spinner.
+            if terminal && !silent {
+                eprintln!();
+            }
         }
         #[cfg(not(unix))]
-        eprintln!("Connecting to {host}…");
+        if !silent {
+            eprintln!("Connecting to {host}…");
+        }
         Ok(connection)
     }
 
     /// Opens the shared connection behind a spinner, with ssh's prompts
     /// turned off (`BatchMode`): with a key in the SSH agent nothing needs
-    /// asking, and the spinner goes away once connected. False when ssh
+    /// asking, and the spinner leaves an empty line before the output once
+    /// connected, like the CLI's other loaders. False when ssh
     /// needs to ask something (a password, a passphrase, a new host key),
     /// so the caller connects again with its prompts. A machine ssh can't
     /// reach fails here, rather than being tried twice.
     #[cfg(unix)]
-    fn connect_without_prompts(&self) -> Result<bool> {
-        let mut spinner = new_spinner(format!("Connecting to {}…", self.host), Streams::Stderr);
+    fn connect_without_prompts(&self, silent: bool) -> Result<bool> {
+        let mut spinner = (!silent)
+            .then(|| new_spinner(format!("Connecting to {}…", self.host), Streams::Stderr));
         let output = ssh()
             .args(self.control_options("yes"))
             .args([
@@ -149,9 +162,14 @@ impl Connection {
             .stderr(Stdio::piped())
             .output()
             .context("Could not start `ssh`")?;
-        spinner.clear();
         if output.status.success() {
+            if let Some(spinner) = &mut spinner {
+                spinner.stop_with_message("");
+            }
             return Ok(true);
+        }
+        if let Some(spinner) = &mut spinner {
+            spinner.clear();
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
         if unreachable(&stderr) {
@@ -227,14 +245,14 @@ impl Drop for Connection {
 
 /// `json` is the global `--json`; only `ssh sessions list` has data to show
 /// that way.
-pub fn handle_ssh_command(cmd: SshCommand, json: bool) -> Result<()> {
+pub fn handle_ssh_command(cmd: SshCommand, json: bool, silent: bool) -> Result<()> {
     if which_ssh().is_none() {
         bail!("`ssh` was not found on this machine.");
     }
     match cmd.subcommand {
         SshSubcommand::Install(args) => {
             validate_host(&args.host)?;
-            install(args)
+            install(args, silent)
         }
         SshSubcommand::Setup(args) => {
             validate_host(&args.host)?;
@@ -242,11 +260,11 @@ pub fn handle_ssh_command(cmd: SshCommand, json: bool) -> Result<()> {
         }
         SshSubcommand::Doctor(args) => {
             validate_host(&args.host)?;
-            doctor(args)
+            doctor(args, silent)
         }
         SshSubcommand::Uninstall(args) => {
             validate_host(&args.host)?;
-            uninstall(args)
+            uninstall(args, silent)
         }
         SshSubcommand::Open(args) => {
             validate_host(&args.host)?;
@@ -255,11 +273,11 @@ pub fn handle_ssh_command(cmd: SshCommand, json: bool) -> Result<()> {
         SshSubcommand::Sessions(args) => match args.subcommand {
             SshSessionsSubcommand::List(args) => {
                 validate_host(&args.host)?;
-                list_sessions(args, json)
+                list_sessions(args, json, silent)
             }
             SshSessionsSubcommand::Close(args) => {
                 validate_host(&args.host)?;
-                close_session(args)
+                close_session(args, silent)
             }
         },
     }
@@ -304,14 +322,14 @@ fn close_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
 
 /// Closes a session `ssh open --session` made, after asking: it stops the
 /// agents and anything else running in it.
-fn close_session(cmd: SshSessionsClose) -> Result<()> {
+fn close_session(cmd: SshSessionsClose, silent: bool) -> Result<()> {
     let host = cmd.host;
     let name = cmd.name;
     validate_session(&name)?;
     let Some((binary, script)) = close_script(cmd.multiplexer) else {
         bail!("Without a multiplexer (`--with none`) there are no sessions to close.");
     };
-    let ssh = Connection::open(&host)?;
+    let ssh = Connection::open(&host, silent)?;
     let run = |args: &[String]| {
         let status = ssh
             .command(false, &sh_command(&script, args))
@@ -459,12 +477,12 @@ fn parse_sessions(multiplexer: Multiplexer, output: &str) -> Vec<RemoteSession> 
 }
 
 /// Lists the sessions `ssh open --session` can attach to.
-fn list_sessions(cmd: SshSessionsList, json: bool) -> Result<()> {
+fn list_sessions(cmd: SshSessionsList, json: bool, silent: bool) -> Result<()> {
     let host = cmd.host;
     let Some((binary, script)) = sessions_script(cmd.multiplexer) else {
         bail!("Without a multiplexer (`--with none`) there are no sessions to list.");
     };
-    let ssh = Connection::open(&host)?;
+    let ssh = Connection::open(&host, silent)?;
     let output = ssh
         .command(false, &sh_command(&script, &[]))
         .stdin(Stdio::null())
@@ -586,9 +604,9 @@ fn port_forward(spec: &str) -> Result<(u16, u16)> {
     }
 }
 
-fn install(cmd: SshInstall) -> Result<()> {
+fn install(cmd: SshInstall, silent: bool) -> Result<()> {
     let host = cmd.host;
-    let ssh = Connection::open(&host)?;
+    let ssh = Connection::open(&host, silent)?;
 
     // One round trip for the platform and any existing copies: the one the
     // login shell runs (`bin`) and others install.sh or PATH might pick.
@@ -767,9 +785,9 @@ fn doctor_script() -> String {
 
 /// Runs the machine's checks, after comparing its CLI's version with this
 /// one: an older copy there may lack fixes or reject newer profile options.
-fn doctor(cmd: SshDoctor) -> Result<()> {
+fn doctor(cmd: SshDoctor, silent: bool) -> Result<()> {
     let host = cmd.host;
-    let ssh = Connection::open(&host)?;
+    let ssh = Connection::open(&host, silent)?;
     let term = std::env::var("TERM").unwrap_or_default();
     let found = ssh.output(&sh_command(&session_probe(), std::slice::from_ref(&term)))?;
     let found = SessionProbe::parse(&found);
@@ -975,9 +993,9 @@ fn removal_summary(host: &str, installation: &Installation) -> String {
 /// Removes the binary, the stored API keys (also from a keyring, through the
 /// machine's own `config reset`) and the config directory, after showing
 /// exactly what goes.
-fn uninstall(cmd: SshUninstall) -> Result<()> {
+fn uninstall(cmd: SshUninstall, silent: bool) -> Result<()> {
     let host = cmd.host;
-    let ssh = Connection::open(&host)?;
+    let ssh = Connection::open(&host, silent)?;
     let inspect = format!(
         "{LOCATE_BINARY}{LOCATE_CONFIG_DIR}echo \"bin=$bin\"\n[ -d \"$dir\" ] && echo \"config=$dir\"\necho \"agent_profiles=$(ls \"$dir/agents\"/*.toml 2>/dev/null | wc -l)\"\n"
     );
