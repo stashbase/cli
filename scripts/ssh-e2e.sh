@@ -138,7 +138,11 @@ check "open --session creates the named tmux session" "$(contains "e2e-work")"
 
 run "$local_bin" ssh sessions list "$host"
 check "sessions list shows the session open created" \
-  "$([ "$status" -eq 0 ] && contains "e2e-work:")"
+  "$([ "$status" -eq 0 ] && contains "e2e-work")"
+
+run "$local_bin" --json ssh sessions list "$host"
+check "sessions list --json gives the session as JSON" \
+  "$([ "$status" -eq 0 ] && contains "\"name\": \"e2e-work\"")"
 
 run "$local_bin" ssh sessions list "$host" --with zellij
 check "sessions list says when the multiplexer isn't installed" \

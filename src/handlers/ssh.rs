@@ -9,6 +9,8 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use serde::Serialize;
+use tabled::Tabled;
 
 use crate::{
     cmd::ssh::{
@@ -17,9 +19,11 @@ use crate::{
     },
     handlers::run::entry::shell_quote,
     utils::{
+        human_datetime::format_utc,
         interaction::confirm_opt,
-        output::ColorizeIfColoredOutput,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         spinner::{new_spinner, Streams},
+        tables::build::build_table,
     },
 };
 
@@ -221,7 +225,9 @@ impl Drop for Connection {
     }
 }
 
-pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
+/// `json` is the global `--json`; only `ssh sessions list` has data to show
+/// that way.
+pub fn handle_ssh_command(cmd: SshCommand, json: bool) -> Result<()> {
     if which_ssh().is_none() {
         bail!("`ssh` was not found on this machine.");
     }
@@ -249,7 +255,7 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
         SshSubcommand::Sessions(args) => match args.subcommand {
             SshSessionsSubcommand::List(args) => {
                 validate_host(&args.host)?;
-                list_sessions(args)
+                list_sessions(args, json)
             }
             SshSessionsSubcommand::Close(args) => {
                 validate_host(&args.host)?;
@@ -345,18 +351,22 @@ fn close_session(cmd: SshSessionsClose) -> Result<()> {
     Ok(())
 }
 
-/// The multiplexer's name and the remote command for `ssh sessions`: its own
-/// list, or nothing when it has no sessions; exits `NOT_INSTALLED` without
-/// it.
+/// The multiplexer's name and the remote command for `ssh sessions list`:
+/// one line per session, read by `parse_sessions`, or nothing when there are
+/// none; exits `NOT_INSTALLED` without the multiplexer.
 fn sessions_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
-    // Each exits non-zero with only a message when there are no sessions,
-    // and screen lists its sessions between other lines.
+    // Each exits non-zero with only a message when there are no sessions.
+    // screen lists its sessions between other lines; zellij before 0.40
+    // has no `--short`, so its first word is the name.
     let (binary, list) = match multiplexer {
-        Multiplexer::Tmux => ("tmux", "tmux list-sessions 2>/dev/null"),
+        Multiplexer::Tmux => (
+            "tmux",
+            "tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_windows}|#{session_created}' 2>/dev/null",
+        ),
         Multiplexer::Screen => ("screen", "screen -ls | grep -E '^[[:space:]]+[0-9]+\\.'"),
         Multiplexer::Zellij => (
             "zellij",
-            "zellij list-sessions --no-formatting 2>/dev/null || zellij list-sessions 2>/dev/null",
+            "zellij list-sessions --short 2>/dev/null || zellij list-sessions --no-formatting 2>/dev/null | cut -d ' ' -f 1",
         ),
         Multiplexer::None => return None,
     };
@@ -366,8 +376,90 @@ fn sessions_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
     ))
 }
 
+/// A session on the machine, as `ssh sessions list` shows it. Fields the
+/// multiplexer doesn't report are `None` (`null` in JSON): screen has no
+/// window count or creation time, zellij reports only names.
+#[derive(Debug, PartialEq, Eq, Serialize, Tabled)]
+struct RemoteSession {
+    #[tabled(rename = "Name")]
+    name: String,
+    #[tabled(rename = "Attached", display_with = "display_attached")]
+    attached: Option<bool>,
+    #[tabled(rename = "Windows", display_with = "display_unknown")]
+    windows: Option<u32>,
+    #[tabled(rename = "Created", display_with = "display_unknown")]
+    created_at: Option<String>,
+}
+
+fn display_attached(attached: &Option<bool>) -> String {
+    match attached {
+        Some(true) => "yes".to_owned(),
+        Some(false) => "no".to_owned(),
+        None => "---".to_owned(),
+    }
+}
+
+fn display_unknown<T: std::fmt::Display>(value: &Option<T>) -> String {
+    value
+        .as_ref()
+        .map_or_else(|| "---".to_owned(), ToString::to_string)
+}
+
+/// Reads `sessions_script`'s output.
+fn parse_sessions(multiplexer: Multiplexer, output: &str) -> Vec<RemoteSession> {
+    let lines = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    match multiplexer {
+        // `name|attached clients|windows|created (Unix time)`, read from the
+        // right: a name may itself contain `|`.
+        Multiplexer::Tmux => lines
+            .filter_map(|line| {
+                let mut fields = line.rsplitn(4, '|');
+                let created = fields.next()?.parse::<i64>().ok();
+                let windows = fields.next()?.parse::<u32>().ok();
+                let attached = fields
+                    .next()?
+                    .parse::<u32>()
+                    .ok()
+                    .map(|clients| clients > 0);
+                Some(RemoteSession {
+                    name: fields.next()?.to_owned(),
+                    attached,
+                    windows,
+                    created_at: created
+                        .and_then(|secs| chrono::DateTime::from_timestamp(secs, 0))
+                        .map(format_utc),
+                })
+            })
+            .collect(),
+        // `12345.name  (date)  (Attached)`, `(Detached)` or `(Multi, attached)`.
+        Multiplexer::Screen => lines
+            .filter_map(|line| {
+                let (_, name) = line.split_whitespace().next()?.split_once('.')?;
+                Some(RemoteSession {
+                    name: name.to_owned(),
+                    attached: Some(line.to_ascii_lowercase().contains("attached)")),
+                    windows: None,
+                    created_at: None,
+                })
+            })
+            .collect(),
+        Multiplexer::Zellij => lines
+            .map(|name| RemoteSession {
+                name: name.to_owned(),
+                attached: None,
+                windows: None,
+                created_at: None,
+            })
+            .collect(),
+        Multiplexer::None => Vec::new(),
+    }
+}
+
 /// Lists the sessions `ssh open --session` can attach to.
-fn list_sessions(cmd: SshSessionsList) -> Result<()> {
+fn list_sessions(cmd: SshSessionsList, json: bool) -> Result<()> {
     let host = cmd.host;
     let Some((binary, script)) = sessions_script(cmd.multiplexer) else {
         bail!("Without a multiplexer (`--with none`) there are no sessions to list.");
@@ -387,12 +479,16 @@ fn list_sessions(cmd: SshSessionsList) -> Result<()> {
             output.status
         ),
     }
-    let list = String::from_utf8_lossy(&output.stdout);
-    if list.trim().is_empty() {
+    let sessions = parse_sessions(cmd.multiplexer, &String::from_utf8_lossy(&output.stdout));
+    if json {
+        println!("{}", get_formatted_json_string(&sessions, true)?);
+        return Ok(());
+    }
+    if sessions.is_empty() {
         eprintln!("No {binary} sessions on {host}. Start one with: stashbase ssh open {host}");
         return Ok(());
     }
-    print!("{list}");
+    println!("{}", build_table(&sessions));
     let with = match cmd.multiplexer {
         Multiplexer::Tmux => String::new(),
         _ => format!(" --with {binary}"),
@@ -1224,11 +1320,60 @@ mod tests {
         assert!(script.starts_with(&format!(
             "command -v tmux >/dev/null 2>&1 || exit {NOT_INSTALLED}\n"
         )));
-        assert!(script.contains("tmux list-sessions"));
+        assert!(script.contains("tmux list-sessions -F"));
         assert!(script.ends_with("exit 0\n"));
         assert_eq!(sessions_script(Multiplexer::Screen).unwrap().0, "screen");
         assert_eq!(sessions_script(Multiplexer::Zellij).unwrap().0, "zellij");
         assert!(sessions_script(Multiplexer::None).is_none());
+    }
+
+    #[test]
+    fn sessions_are_read_from_each_multiplexers_list() {
+        assert_eq!(
+            parse_sessions(
+                Multiplexer::Tmux,
+                "stashbase|1|2|1761638832\nwork|a|b|0|1|1761638900\n"
+            ),
+            vec![
+                RemoteSession {
+                    name: "stashbase".to_owned(),
+                    attached: Some(true),
+                    windows: Some(2),
+                    created_at: Some("2025-10-28T08:07:12Z".to_owned()),
+                },
+                RemoteSession {
+                    name: "work|a|b".to_owned(),
+                    attached: Some(false),
+                    windows: Some(1),
+                    created_at: Some("2025-10-28T08:08:20Z".to_owned()),
+                },
+            ]
+        );
+        let screen = parse_sessions(
+            Multiplexer::Screen,
+            "\t4321.stashbase\t(10/28/2026 08:00:00 AM)\t(Attached)\n\t4400.work\t(Detached)\n\t4500.both\t(Multi, attached)\n",
+        );
+        assert_eq!(
+            screen
+                .iter()
+                .map(|session| (session.name.as_str(), session.attached))
+                .collect::<Vec<_>>(),
+            [
+                ("stashbase", Some(true)),
+                ("work", Some(false)),
+                ("both", Some(true))
+            ]
+        );
+        assert_eq!(
+            parse_sessions(Multiplexer::Zellij, "stashbase\nwork\n")[1],
+            RemoteSession {
+                name: "work".to_owned(),
+                attached: None,
+                windows: None,
+                created_at: None,
+            }
+        );
+        assert!(parse_sessions(Multiplexer::Tmux, "").is_empty());
     }
 
     #[test]
