@@ -263,8 +263,9 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
 const NO_SUCH_SESSION: i32 = 4;
 
 /// The multiplexer's name and the remote command for `ssh sessions close`,
-/// given the session name as `$1`: closes it, with everything running in
-/// it, or exits `NO_SUCH_SESSION`.
+/// given the session name as `$1`: exits `NO_SUCH_SESSION` without that
+/// session, and otherwise, with `close` as `$2`, closes it with everything
+/// running in it. Without `$2` it only checks, so the question comes after.
 fn close_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
     // tmux's `=` matches the whole name, not a prefix of another session's.
     // zellij's `delete-session --force` also stops a running session and
@@ -272,15 +273,15 @@ fn close_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
     let (binary, close) = match multiplexer {
         Multiplexer::Tmux => (
             "tmux",
-            "tmux has-session -t \"=$1\" 2>/dev/null || exit {missing}\ntmux kill-session -t \"=$1\"",
+            "tmux has-session -t \"=$1\" 2>/dev/null || exit {missing}\n{only_check}\ntmux kill-session -t \"=$1\"",
         ),
         Multiplexer::Screen => (
             "screen",
-            "screen -ls | grep -qE \"^[[:space:]]+[0-9]+\\\\.$1[[:space:]]\" || exit {missing}\nscreen -S \"$1\" -X quit",
+            "screen -ls | grep -qE \"^[[:space:]]+[0-9]+\\\\.$1[[:space:]]\" || exit {missing}\n{only_check}\nscreen -S \"$1\" -X quit",
         ),
         Multiplexer::Zellij => (
             "zellij",
-            "zellij list-sessions --short 2>/dev/null | grep -qx \"$1\" || exit {missing}\nzellij delete-session --force \"$1\"",
+            "zellij list-sessions --short 2>/dev/null | grep -qx \"$1\" || exit {missing}\n{only_check}\nzellij delete-session --force \"$1\"",
         ),
         Multiplexer::None => return None,
     };
@@ -288,7 +289,9 @@ fn close_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
         binary,
         format!(
             "command -v {binary} >/dev/null 2>&1 || exit {NOT_INSTALLED}\n{}\n",
-            close.replace("{missing}", &NO_SUCH_SESSION.to_string())
+            close
+                .replace("{missing}", &NO_SUCH_SESSION.to_string())
+                .replace("{only_check}", "[ \"$2\" = close ] || exit 0")
         ),
     ))
 }
@@ -302,34 +305,44 @@ fn close_session(cmd: SshSessionsClose) -> Result<()> {
     let Some((binary, script)) = close_script(cmd.multiplexer) else {
         bail!("Without a multiplexer (`--with none`) there are no sessions to close.");
     };
-    let question = format!(
-        "Close {binary} session '{name}' on {host}? Everything running in it, such as agents, stops."
-    );
+    let ssh = Connection::open(&host)?;
+    let run = |args: &[String]| {
+        let status = ssh
+            .command(false, &sh_command(&script, args))
+            .stdin(Stdio::null())
+            .status()
+            .context("Could not start `ssh`")?;
+        match status.code() {
+            Some(0) => Ok(()),
+            Some(NOT_INSTALLED) => bail!("{binary} is not installed on {host}."),
+            Some(NO_SUCH_SESSION) => bail!(
+                "There's no {binary} session '{name}' on {host}. List them with: stashbase ssh sessions list {host}"
+            ),
+            _ => bail!("Closing session '{name}' on {host} failed (ssh exited with {status})."),
+        }
+    };
+    // Look the session up before asking, so the question is about one
+    // that exists.
+    run(std::slice::from_ref(&name))?;
+
+    // Short, so it fits on one line: a question that wraps is drawn again
+    // under itself once answered.
+    let question = format!("Close {binary} session '{name}' on {host}?");
     if !cmd.yes {
         if !std::io::stdin().is_terminal() {
             bail!("{question} Pass --yes to proceed without confirmation.");
         }
+        eprintln!("Everything running in session '{name}', such as agents, stops.");
         if confirm_opt(&question) != Some(true) {
             return Ok(());
         }
     }
-    let ssh = Connection::open(&host)?;
-    let status = ssh
-        .command(false, &sh_command(&script, std::slice::from_ref(&name)))
-        .stdin(Stdio::null())
-        .status()
-        .context("Could not start `ssh`")?;
-    match status.code() {
-        Some(0) => {
-            eprintln!("{} Closed session '{name}' on {host}.", "Done:".green_if_tty_stderr());
-            Ok(())
-        }
-        Some(NOT_INSTALLED) => bail!("{binary} is not installed on {host}."),
-        Some(NO_SUCH_SESSION) => bail!(
-            "There's no {binary} session '{name}' on {host}. List them with: stashbase ssh sessions list {host}"
-        ),
-        _ => bail!("Closing session '{name}' on {host} failed (ssh exited with {status})."),
-    }
+    run(&[name.clone(), "close".to_owned()])?;
+    eprintln!(
+        "{} Closed session '{name}' on {host}.",
+        "Done:".green_if_tty_stderr()
+    );
+    Ok(())
 }
 
 /// The multiplexer's name and the remote command for `ssh sessions`: its own
@@ -1217,12 +1230,14 @@ mod tests {
                 "tmux has-session -t \"=$1\" 2>/dev/null || exit {NO_SUCH_SESSION}"
             ))
             .unwrap();
+        let only_check = script.find("[ \"$2\" = close ] || exit 0").unwrap();
         let kill = script.find("tmux kill-session -t \"=$1\"").unwrap();
-        assert!(check < kill);
+        assert!(check < only_check && only_check < kill);
         for multiplexer in [Multiplexer::Screen, Multiplexer::Zellij] {
             let (_, script) = close_script(multiplexer).unwrap();
             assert!(script.contains(&format!("|| exit {NO_SUCH_SESSION}")));
-            assert!(!script.contains("{missing}"));
+            assert!(script.contains("[ \"$2\" = close ] || exit 0"));
+            assert!(!script.contains("{missing}") && !script.contains("{only_check}"));
         }
         assert!(close_script(Multiplexer::None).is_none());
     }
