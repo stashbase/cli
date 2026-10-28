@@ -16,7 +16,11 @@ use crate::{
         SshSubcommand, SshUninstall,
     },
     handlers::run::entry::shell_quote,
-    utils::{interaction::confirm_opt, output::ColorizeIfColoredOutput},
+    utils::{
+        interaction::confirm_opt,
+        output::ColorizeIfColoredOutput,
+        spinner::{new_spinner, Streams},
+    },
 };
 
 const INSTALL_SCRIPT: &str = include_str!("../../install.sh");
@@ -43,6 +47,21 @@ fn ssh() -> Command {
     command
 }
 
+/// Whether ssh's error says the machine can't be reached at all, which no
+/// prompt can fix.
+fn unreachable(stderr: &str) -> bool {
+    [
+        "Could not resolve hostname",
+        "Connection timed out",
+        "Operation timed out",
+        "Connection refused",
+        "No route to host",
+        "Network is unreachable",
+    ]
+    .iter()
+    .any(|message| stderr.contains(message))
+}
+
 /// The error for `ssh` itself failing (exit 255), which only the user's own
 /// `ssh` can explain.
 fn connect_error(host: &str, status: std::process::ExitStatus) -> anyhow::Error {
@@ -64,8 +83,6 @@ struct Connection {
 
 impl Connection {
     fn open(host: &str) -> Result<Self> {
-        // Not a spinner: ssh may ask for a password or to trust the host.
-        eprintln!("Connecting to {host}…");
         let mut connection = Self {
             host: host.to_owned(),
             control_dir: None,
@@ -83,6 +100,11 @@ impl Connection {
                 .create(&dir)
                 .with_context(|| format!("Could not create {}", dir.display()))?;
             connection.control_dir = Some(dir);
+            if std::io::stderr().is_terminal() && connection.connect_without_prompts()? {
+                return Ok(connection);
+            }
+            // Not a spinner: ssh may ask for a password or to trust the host.
+            eprintln!("Connecting to {host}…");
             let status = ssh()
                 .args(connection.control_options("yes"))
                 .args(["-o", "ControlPersist=120", "-f", "-N", host])
@@ -93,7 +115,46 @@ impl Connection {
                 return Err(connect_error(host, status));
             }
         }
+        #[cfg(not(unix))]
+        eprintln!("Connecting to {host}…");
         Ok(connection)
+    }
+
+    /// Opens the shared connection behind a spinner, with ssh's prompts
+    /// turned off (`BatchMode`): with a key in the SSH agent nothing needs
+    /// asking, and the spinner goes away once connected. False when ssh
+    /// needs to ask something (a password, a passphrase, a new host key),
+    /// so the caller connects again with its prompts. A machine ssh can't
+    /// reach fails here, rather than being tried twice.
+    #[cfg(unix)]
+    fn connect_without_prompts(&self) -> Result<bool> {
+        let mut spinner = new_spinner(format!("Connecting to {}…", self.host), Streams::Stderr);
+        let output = ssh()
+            .args(self.control_options("yes"))
+            .args([
+                "-o",
+                "ControlPersist=120",
+                "-o",
+                "BatchMode=yes",
+                "-f",
+                "-N",
+            ])
+            .arg(&self.host)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .context("Could not start `ssh`")?;
+        spinner.clear();
+        if output.status.success() {
+            return Ok(true);
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if unreachable(&stderr) {
+            eprint!("{stderr}");
+            return Err(connect_error(&self.host, output.status));
+        }
+        Ok(false)
     }
 
     fn control_options(&self, master: &str) -> Vec<String> {
@@ -219,9 +280,9 @@ fn sessions(cmd: SshSessions) -> Result<()> {
     let Some((binary, script)) = sessions_script(cmd.multiplexer) else {
         bail!("Without a multiplexer (`--with none`) there are no sessions to list.");
     };
-    eprintln!("Connecting to {host}…");
-    let output = ssh()
-        .args([&host, &sh_command(&script, &[])])
+    let ssh = Connection::open(&host)?;
+    let output = ssh
+        .command(false, &sh_command(&script, &[]))
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output()
@@ -229,7 +290,6 @@ fn sessions(cmd: SshSessions) -> Result<()> {
     match output.status.code() {
         Some(0) => {}
         Some(NOT_INSTALLED) => bail!("{binary} is not installed on {host}."),
-        Some(255) => return Err(connect_error(&host, output.status)),
         _ => bail!(
             "Listing {binary} sessions on {host} failed (ssh exited with {}).",
             output.status
@@ -1064,6 +1124,23 @@ mod tests {
         assert_eq!(sessions_script(Multiplexer::Screen).unwrap().0, "screen");
         assert_eq!(sessions_script(Multiplexer::Zellij).unwrap().0, "zellij");
         assert!(sessions_script(Multiplexer::None).is_none());
+    }
+
+    #[test]
+    fn only_an_unreachable_machine_skips_the_prompting_retry() {
+        for error in [
+            "ssh: Could not resolve hostname nobox: nodename nor servname provided",
+            "ssh: connect to host 10.0.0.9 port 22: Operation timed out",
+            "ssh: connect to host 127.0.0.1 port 2222: Connection refused",
+        ] {
+            assert!(unreachable(error), "{error}");
+        }
+        for error in [
+            "dev@mybox: Permission denied (publickey,password).",
+            "Host key verification failed.",
+        ] {
+            assert!(!unreachable(error), "{error}");
+        }
     }
 
     #[test]
