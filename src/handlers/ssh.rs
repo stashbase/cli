@@ -194,14 +194,29 @@ impl Connection {
         }
     }
 
+    /// Whether the connection is already open and shared, so a later `ssh`
+    /// can't fail to log in: false on Windows, where each step connects.
+    fn shared(&self) -> bool {
+        self.control_dir.is_some()
+    }
+
+    /// `-t` for a terminal session over the shared connection, with `-q`
+    /// dropping ssh's "Shared connection to <address> closed." at the end.
+    /// Not without one: there `-q` would hide why logging in failed.
+    fn terminal_args(&self) -> &'static [&'static str] {
+        if self.shared() {
+            &["-t", "-q"]
+        } else {
+            &["-t"]
+        }
+    }
+
     /// `ssh [-t] <host> <remote_command>` over the shared connection.
     fn command(&self, tty: bool, remote_command: &str) -> Command {
         let mut command = ssh();
         command.args(self.control_options("no"));
         if tty {
-            // `-q` drops ssh's "Shared connection to <address> closed." at the
-            // end; login errors were already shown when the connection opened.
-            command.args(["-t", "-q"]);
+            command.args(self.terminal_args());
         }
         command.args([&self.host, remote_command]);
         command
@@ -587,20 +602,20 @@ fn open(cmd: SshOpen, silent: bool) -> Result<()> {
         }
         command.args(["-L", &format!("127.0.0.1:{local}:localhost:{remote}")]);
     }
-    // `-q`: no "Shared connection to <address> closed." on leaving.
-    command.args(["-t", "-q", &host]);
+    command.args(ssh.terminal_args()).arg(&host);
     if let Some(script) = open_script(cmd.multiplexer, &cmd.session) {
         command.arg(sh_command(&script, &[]));
     }
     let status = command.status().context("Could not start `ssh`")?;
-    // 255 is ssh's own failure, here after connecting: the connection
-    // dropped. Anything else is how the remote shell ended.
-    if status.code() == Some(255) {
-        bail!(
+    // 255 is ssh's own failure: after the shared connection opened, the
+    // connection dropped. Anything else is how the remote shell ended.
+    match status.code() {
+        Some(255) if ssh.shared() => bail!(
             "The connection to {host} was lost. The session keeps running there; open it again with: stashbase ssh open {host}"
-        );
+        ),
+        Some(255) => Err(connect_error(&host, status)),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// Parses `--port`: `3000` forwards local 3000 to the machine's 3000,
@@ -961,8 +976,10 @@ fn setup(cmd: SshSetup, silent: bool) -> Result<()> {
         Some(NOT_INSTALLED) => {
             bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
         }
-        // ssh's own failure, after connecting: the connection dropped.
-        Some(255) => bail!("The connection to {host} was lost during setup. Run it again with: stashbase ssh setup {host}"),
+        // ssh's own failure: after the shared connection opened, the
+        // connection dropped.
+        Some(255) if ssh.shared() => bail!("The connection to {host} was lost during setup. Run it again with: stashbase ssh setup {host}"),
+        Some(255) => Err(connect_error(&host, status)),
         _ => bail!("Setup on {host} failed (ssh exited with {status})."),
     }
 }
