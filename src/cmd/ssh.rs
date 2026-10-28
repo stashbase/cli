@@ -13,6 +13,8 @@ pub enum SshSubcommand {
     Install(SshInstall),
     /// Run `stashbase setup` on a machine over SSH
     Setup(SshSetup),
+    /// Check the CLI on a machine over SSH: its version, API key and Docker
+    Doctor(SshDoctor),
     /// Remove the CLI and its stored API keys from a machine over SSH
     Uninstall(SshUninstall),
     /// Connect to a machine and attach to its `stashbase` tmux session
@@ -36,6 +38,14 @@ pub struct SshInstall {
 #[command(override_usage = "ssh setup <HOST>")]
 pub struct SshSetup {
     /// Machine to set up, as you would pass it to `ssh`
+    #[arg(value_name = "HOST")]
+    pub host: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "ssh doctor <HOST>")]
+pub struct SshDoctor {
+    /// Machine to check, as you would pass it to `ssh`
     #[arg(value_name = "HOST")]
     pub host: String,
 }

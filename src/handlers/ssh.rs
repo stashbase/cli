@@ -12,7 +12,8 @@ use anyhow::{bail, Context, Result};
 
 use crate::{
     cmd::ssh::{
-        Multiplexer, SshCommand, SshInstall, SshOpen, SshSetup, SshSubcommand, SshUninstall,
+        Multiplexer, SshCommand, SshDoctor, SshInstall, SshOpen, SshSetup, SshSubcommand,
+        SshUninstall,
     },
     handlers::run::entry::shell_quote,
     utils::{interaction::confirm_opt, output::ColorizeIfColoredOutput},
@@ -169,6 +170,10 @@ pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
         SshSubcommand::Setup(args) => {
             validate_host(&args.host)?;
             setup(args)
+        }
+        SshSubcommand::Doctor(args) => {
+            validate_host(&args.host)?;
+            doctor(args)
         }
         SshSubcommand::Uninstall(args) => {
             validate_host(&args.host)?;
@@ -408,21 +413,88 @@ pub fn detached_agent_hint(
     )
 }
 
+/// POSIX sh, with `bin` set, that runs the machine's `doctor` and `agent
+/// docker doctor` and sets `checks` to the exit status of `doctor`. Docker
+/// is needed only by some profiles, so its findings never count as failed.
+const CHECKS: &str = "\"$bin\" doctor --auth-check\n\
+     checks=$?\n\
+     echo\n\
+     echo 'Docker sandbox (needed only for agent profiles with backend = \"docker\"):'\n\
+     \"$bin\" agent docker doctor\n";
+
 /// Remote command for `ssh setup`: the machine's own interactive setup, then
-/// its `doctor` and `agent docker doctor`, so a key that doesn't work or a
-/// missing Docker shows up now, with its fix, rather than on the first run.
-/// The doctors' findings don't fail the setup.
+/// its checks, so a key that doesn't work or a missing Docker shows up now,
+/// with its fix, rather than on the first run. The checks don't fail the
+/// setup.
 fn setup_script() -> String {
     format!(
         "{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\n\
          \"$bin\" setup || exit $?\n\
          echo\n\
-         \"$bin\" doctor --auth-check\n\
-         echo\n\
-         echo 'Docker sandbox (needed only for agent profiles with backend = \"docker\"):'\n\
-         \"$bin\" agent docker doctor\n\
-         exit 0\n"
+         {CHECKS}exit 0\n"
     )
+}
+
+/// Remote command for `ssh doctor`: the checks `ssh setup` ends with,
+/// failing when `doctor` does.
+fn doctor_script() -> String {
+    format!("{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\n{CHECKS}exit $checks\n")
+}
+
+/// Runs the machine's checks, after comparing its CLI's version with this
+/// one: an older copy there may lack fixes or reject newer profile options.
+fn doctor(cmd: SshDoctor) -> Result<()> {
+    let host = cmd.host;
+    let ssh = Connection::open(&host)?;
+    let found = ssh.output(&sh_command(
+        &format!("{LOCATE_BINARY}[ -n \"$bin\" ] && \"$bin\" --version\ntrue\n"),
+        &[],
+    ))?;
+    let Some(remote) = found.split_whitespace().last() else {
+        bail!(
+            "stashbase is not installed on {host}. Install it with: stashbase ssh install {host}"
+        );
+    };
+    let local = env!("CARGO_PKG_VERSION");
+    eprintln!("stashbase {remote} on {host} (this computer: {local})");
+    if version_is_older(remote, local) {
+        eprintln!(
+            "{} {host} runs an older stashbase. Update it with: stashbase ssh install {host}",
+            "Warning:".yellow_if_tty_stderr()
+        );
+    }
+    eprintln!();
+
+    // A terminal there keeps the checks' colors; ssh allocates one only when
+    // its own stdin is a terminal.
+    let tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let status = ssh
+        .command(tty, &sh_command(&doctor_script(), &[]))
+        .status()
+        .context("Could not start `ssh`")?;
+    match status.code() {
+        Some(0) => Ok(()),
+        Some(NOT_INSTALLED) => {
+            bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
+        }
+        Some(255) => Err(connect_error(&host, status)),
+        _ => bail!("The checks on {host} found failures; see above for how to fix them."),
+    }
+}
+
+/// Whether version `a` comes before `b`, comparing dotted numbers such as
+/// `0.23.1`. False when either isn't one, so an odd version never warns.
+fn version_is_older(a: &str, b: &str) -> bool {
+    let parse = |version: &str| {
+        version
+            .split('.')
+            .map(|part| part.parse::<u64>().ok())
+            .collect::<Option<Vec<_>>>()
+    };
+    match (parse(a), parse(b)) {
+        (Some(a), Some(b)) => a < b,
+        _ => false,
+    }
 }
 
 /// Runs the machine's own interactive `stashbase setup` in a terminal session.
@@ -795,6 +867,26 @@ mod tests {
         let docker = script.find("\"$bin\" agent docker doctor").unwrap();
         assert!(setup < doctor && doctor < docker);
         assert!(script.ends_with("exit 0\n"));
+    }
+
+    #[test]
+    fn doctor_fails_only_when_the_machines_doctor_does() {
+        let script = doctor_script();
+        let doctor = script
+            .find("\"$bin\" doctor --auth-check\nchecks=$?")
+            .unwrap();
+        let docker = script.find("\"$bin\" agent docker doctor").unwrap();
+        assert!(doctor < docker);
+        assert!(script.ends_with("exit $checks\n"));
+    }
+
+    #[test]
+    fn version_is_older_compares_numbers_not_text() {
+        assert!(version_is_older("0.23.0", "0.24.0"));
+        assert!(version_is_older("0.9.0", "0.10.0"));
+        assert!(!version_is_older("0.24.0", "0.24.0"));
+        assert!(!version_is_older("0.25.0", "0.24.0"));
+        assert!(!version_is_older("0.24.0-beta", "0.25.0"));
     }
 
     #[test]
