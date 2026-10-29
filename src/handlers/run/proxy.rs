@@ -196,7 +196,8 @@ pub struct ProxyAuditLogEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<String>,
     pub destination_host: Option<String>,
-    /// Present only for filesystem-policy events.
+    /// Filesystem path for filesystem-policy events; request path (no query)
+    /// for MCP and credential-denial events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// MCP tool name for MCP tool-call audit events.
@@ -1898,7 +1899,7 @@ fn proxy_request(
                 return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
                     "proxy.host_not_allowed",
-                    "Agent Proxy policy denied destination",
+                    &host_denied_message(Some(host_from_authority(&authority))),
                 ));
             }
             let connect_remote = state.remote_for(Some(host_from_authority(&authority)));
@@ -2077,7 +2078,7 @@ fn proxy_request(
             return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
-                "Agent Proxy policy denied destination",
+                &host_denied_message(host.as_deref()),
                 Some(&request_id),
             ));
         }
@@ -2100,7 +2101,7 @@ fn proxy_request(
             return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
-                "Agent Proxy policy denied destination",
+                &host_denied_message(host.as_deref()),
                 Some(&request_id),
             ));
         }
@@ -2130,14 +2131,18 @@ fn proxy_request(
                         "proxy denied credential injection for destination: {}",
                         host.as_deref().unwrap_or("unknown")
                     );
-                    state.record_audit_with_request(
+                    // The path lets `agent allow` suggest a rule from the event.
+                    state.record_mcp_tool_with_request(
                         &request_id,
                         denial.audit_action,
+                        None,
                         host.as_deref(),
+                        Some(request.uri().path()),
                         Some(request.method()),
                         Some(&denial.secret_name),
                         Some(StatusCode::FORBIDDEN),
                         Some(started.elapsed()),
+                        None,
                     );
                     return Ok(proxy_error_response_with_id(
                         StatusCode::FORBIDDEN,
@@ -2163,7 +2168,7 @@ fn proxy_request(
             return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
-                "Agent Proxy policy denied destination",
+                &host_denied_message(host.as_deref()),
                 Some(&request_id),
             ));
         }
@@ -2366,7 +2371,7 @@ fn proxy_request(
                     return Ok(proxy_error_response_with_id(
                         StatusCode::FORBIDDEN,
                         "proxy.mcp_tool_not_allowed",
-                        &denial.message,
+                        &denial.agent_message(),
                         Some(&request_id),
                     ));
                 }
@@ -3805,6 +3810,19 @@ impl McpDenial {
             reason: reason.into(),
         }
     }
+
+    /// The 403 message: malformed requests get `message` alone, policy
+    /// decisions also get `POLICY_DENIAL_HINT`.
+    fn agent_message(&self) -> String {
+        match self.reason.as_str() {
+            "invalid_json"
+            | "batch_request"
+            | "duplicate_key"
+            | "missing_tool_name"
+            | "arguments_not_object" => self.message.clone(),
+            _ => format!("{}. {POLICY_DENIAL_HINT}", self.message),
+        }
+    }
 }
 
 fn authorize_mcp_request(
@@ -4214,11 +4232,25 @@ struct CredentialDenial {
 impl CredentialDenial {
     fn message(&self) -> String {
         match &self.detail {
-            Some(detail) => {
-                format!("The supplied credential is not allowed for this request ({detail}).")
+            Some(detail) => format!(
+                "The supplied credential is not allowed for this request ({detail}). {POLICY_DENIAL_HINT}"
+            ),
+            None => {
+                format!("The supplied credential is not allowed for this request. {POLICY_DENIAL_HINT}")
             }
-            None => "The supplied credential is not allowed for this request.".to_owned(),
         }
+    }
+}
+
+/// Appended to 403s the profile decided, so an agent stops retrying or
+/// working around the block. It deliberately doesn't name `stashbase agent
+/// allow`: an agent that can write its own profile shouldn't be told how.
+const POLICY_DENIAL_HINT: &str = "This is a policy decision of the user's agent profile, not a network error; retrying will not help. Ask the user to allow it if it is needed.";
+
+fn host_denied_message(host: Option<&str>) -> String {
+    match host {
+        Some(host) => format!("Agent Proxy policy denied destination {host}. {POLICY_DENIAL_HINT}"),
+        None => format!("Agent Proxy policy denied destination. {POLICY_DENIAL_HINT}"),
     }
 }
 
@@ -5701,6 +5733,36 @@ mod tests {
             serde_json::from_slice(&body).unwrap();
         assert_eq!(error.error.code, "proxy.telemetry_not_allowed");
         proxy.stop().await;
+    }
+
+    #[test]
+    fn policy_denials_tell_the_agent_not_to_retry_but_malformed_requests_do_not() {
+        assert_eq!(
+            host_denied_message(Some("pypi.org")),
+            format!("Agent Proxy policy denied destination pypi.org. {POLICY_DENIAL_HINT}")
+        );
+        let denial = CredentialDenial {
+            secret_name: "GITHUB_TOKEN".to_owned(),
+            audit_action: "credential_rule_denied",
+            detail: Some("rule 1: body.send".to_owned()),
+        };
+        assert_eq!(
+            denial.message(),
+            format!(
+                "The supplied credential is not allowed for this request (rule 1: body.send). \
+                 {POLICY_DENIAL_HINT}"
+            )
+        );
+        assert!(McpDenial::new(
+            "MCP tool is not allowed by the agent profile",
+            "tool_denied"
+        )
+        .agent_message()
+        .ends_with(POLICY_DENIAL_HINT));
+        assert_eq!(
+            McpDenial::new("MCP request body is not valid JSON", "invalid_json").agent_message(),
+            "MCP request body is not valid JSON"
+        );
     }
 
     #[tokio::test]
