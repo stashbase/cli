@@ -961,7 +961,11 @@ fn load_mcp_profile_for_edit(
     )
 }
 
-fn replace_mcp_allow_tools(content: &str, server: &str, tools: &[String]) -> Result<String> {
+pub(crate) fn replace_mcp_allow_tools(
+    content: &str,
+    server: &str,
+    tools: &[String],
+) -> Result<String> {
     let section = format!("[mcp_servers.{server}]");
     let lines = content.lines().collect::<Vec<_>>();
     let start = lines
