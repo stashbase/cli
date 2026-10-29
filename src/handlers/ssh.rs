@@ -304,6 +304,11 @@ pub fn handle_ssh_command(cmd: SshCommand, json: bool, silent: bool) -> Result<(
 /// Exit code of `close_script` when there's no session by that name.
 const NO_SUCH_SESSION: i32 = 4;
 
+/// POSIX sh printing zellij's session names, one per line: zellij before
+/// 0.40 has no `--short`, so there the first word of its listing is the
+/// name. `ssh sessions list` and `close` both read it.
+const ZELLIJ_SESSION_NAMES: &str = "zellij list-sessions --short 2>/dev/null || zellij list-sessions --no-formatting 2>/dev/null | cut -d ' ' -f 1";
+
 /// The multiplexer's name and the remote command for `ssh sessions close`,
 /// given the session name as `$1`: exits `NO_SUCH_SESSION` without that
 /// session, and otherwise, with `close` as `$2`, closes it with everything
@@ -311,19 +316,22 @@ const NO_SUCH_SESSION: i32 = 4;
 fn close_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
     // tmux's `=` matches the whole name, not a prefix of another session's.
     // zellij's `delete-session --force` also stops a running session and
-    // keeps it from being offered for resurrection.
+    // keeps it from being offered for resurrection; versions without it
+    // only have `kill-session`.
     let (binary, close) = match multiplexer {
         Multiplexer::Tmux => (
             "tmux",
-            "tmux has-session -t \"=$1\" 2>/dev/null || exit {missing}\n{only_check}\ntmux kill-session -t \"=$1\"",
+            "tmux has-session -t \"=$1\" 2>/dev/null || exit {missing}\n{only_check}\ntmux kill-session -t \"=$1\"".to_owned(),
         ),
         Multiplexer::Screen => (
             "screen",
-            "screen -ls | grep -qE \"^[[:space:]]+[0-9]+\\\\.$1[[:space:]]\" || exit {missing}\n{only_check}\nscreen -S \"$1\" -X quit",
+            "screen -ls | grep -qE \"^[[:space:]]+[0-9]+\\\\.$1[[:space:]]\" || exit {missing}\n{only_check}\nscreen -S \"$1\" -X quit".to_owned(),
         ),
         Multiplexer::Zellij => (
             "zellij",
-            "zellij list-sessions --short 2>/dev/null | grep -qx \"$1\" || exit {missing}\n{only_check}\nzellij delete-session --force \"$1\"",
+            format!(
+                "{{ {ZELLIJ_SESSION_NAMES}; }} | grep -qx \"$1\" || exit {{missing}}\n{{only_check}}\nzellij delete-session --force \"$1\" 2>/dev/null || zellij kill-session \"$1\""
+            ),
         ),
         Multiplexer::None => return None,
     };
@@ -391,19 +399,15 @@ fn close_session(cmd: SshSessionsClose, silent: bool) -> Result<()> {
 /// one line per session, read by `parse_sessions`, or nothing when there are
 /// none; exits `NOT_INSTALLED` without the multiplexer.
 fn sessions_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
-    // Each exits non-zero with only a message when there are no sessions.
-    // screen lists its sessions between other lines; zellij before 0.40
-    // has no `--short`, so its first word is the name.
+    // Each exits non-zero with only a message when there are no sessions,
+    // and screen lists its sessions between other lines.
     let (binary, list) = match multiplexer {
         Multiplexer::Tmux => (
             "tmux",
             "tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_windows}|#{session_created}' 2>/dev/null",
         ),
         Multiplexer::Screen => ("screen", "screen -ls | grep -E '^[[:space:]]+[0-9]+\\.'"),
-        Multiplexer::Zellij => (
-            "zellij",
-            "zellij list-sessions --short 2>/dev/null || zellij list-sessions --no-formatting 2>/dev/null | cut -d ' ' -f 1",
-        ),
+        Multiplexer::Zellij => ("zellij", ZELLIJ_SESSION_NAMES),
         Multiplexer::None => return None,
     };
     Some((
@@ -1449,6 +1453,14 @@ mod tests {
             assert!(script.contains("[ \"$2\" = close ] || exit 0"));
             assert!(!script.contains("{missing}") && !script.contains("{only_check}"));
         }
+        // zellij finds the session the same way `ssh sessions list` lists it,
+        // older versions included.
+        let (_, zellij) = close_script(Multiplexer::Zellij).unwrap();
+        assert!(zellij.contains(&format!("{{ {ZELLIJ_SESSION_NAMES}; }} | grep -qx \"$1\"")));
+        assert!(sessions_script(Multiplexer::Zellij)
+            .unwrap()
+            .1
+            .contains(ZELLIJ_SESSION_NAMES));
         assert!(close_script(Multiplexer::None).is_none());
     }
 
