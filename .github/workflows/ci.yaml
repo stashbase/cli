@@ -43,3 +43,26 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked
+
+  ssh-e2e:
+    name: SSH commands end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --locked
+
+      # `ssh install`, `doctor`, `open` and `uninstall` against a throwaway
+      # sshd container, through the real `ssh` client.
+      - name: Run the SSH end-to-end test
+        run: scripts/ssh-e2e.sh target/debug/stashbase

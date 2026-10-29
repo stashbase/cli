@@ -1493,7 +1493,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 .into_exit(),
             EntityType::Open => handle_open_dashboard(api_key, silent).await.into_exit(),
             EntityType::Ssh(cmd) => {
-                crate::handlers::ssh::handle_ssh_command(cmd).into_exit()
+                crate::handlers::ssh::handle_ssh_command(cmd, raw_output, silent).into_exit()
             }
             EntityType::Generate(_) => unreachable!(),
             EntityType::Doctor(_) => unreachable!(),

@@ -9,13 +9,22 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use serde::Serialize;
+use tabled::Tabled;
 
 use crate::{
     cmd::ssh::{
-        Multiplexer, SshCommand, SshInstall, SshOpen, SshSetup, SshSubcommand, SshUninstall,
+        Multiplexer, SshCommand, SshDoctor, SshInstall, SshOpen, SshSessionsClose, SshSessionsList,
+        SshSessionsSubcommand, SshSetup, SshSubcommand, SshUninstall,
     },
     handlers::run::entry::shell_quote,
-    utils::{interaction::confirm_opt, output::ColorizeIfColoredOutput},
+    utils::{
+        human_datetime::format_utc,
+        interaction::confirm_opt,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        spinner::{new_spinner, Streams},
+        tables::build::build_table,
+    },
 };
 
 const INSTALL_SCRIPT: &str = include_str!("../../install.sh");
@@ -36,10 +45,28 @@ const NOT_INSTALLED: i32 = 3;
 
 /// The user's `ssh`, giving up on a machine that doesn't answer (a stale
 /// address, a stopped VM) instead of hanging with nothing on screen.
+/// Keepalives stop NAT and cloud firewalls from cutting a quiet connection,
+/// such as `ssh open`'s while an agent works for a long time; on a shared
+/// connection they're the master's.
 fn ssh() -> Command {
     let mut command = Command::new("ssh");
-    command.args(["-o", "ConnectTimeout=15"]);
+    command.args(["-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=30"]);
     command
+}
+
+/// Whether ssh's error says the machine can't be reached at all, which no
+/// prompt can fix.
+fn unreachable(stderr: &str) -> bool {
+    [
+        "Could not resolve hostname",
+        "Connection timed out",
+        "Operation timed out",
+        "Connection refused",
+        "No route to host",
+        "Network is unreachable",
+    ]
+    .iter()
+    .any(|message| stderr.contains(message))
 }
 
 /// The error for `ssh` itself failing (exit 255), which only the user's own
@@ -62,9 +89,9 @@ struct Connection {
 }
 
 impl Connection {
-    fn open(host: &str) -> Result<Self> {
-        // Not a spinner: ssh may ask for a password or to trust the host.
-        eprintln!("Connecting to {host}…");
+    /// `silent` (the global `--silent`) leaves out the spinner and the
+    /// "Connecting" line, but never ssh's own prompts.
+    fn open(host: &str, silent: bool) -> Result<Self> {
         let mut connection = Self {
             host: host.to_owned(),
             control_dir: None,
@@ -82,6 +109,14 @@ impl Connection {
                 .create(&dir)
                 .with_context(|| format!("Could not create {}", dir.display()))?;
             connection.control_dir = Some(dir);
+            let terminal = std::io::stderr().is_terminal();
+            if terminal && connection.connect_without_prompts(silent)? {
+                return Ok(connection);
+            }
+            // Not a spinner: ssh may ask for a password or to trust the host.
+            if !silent {
+                eprintln!("Connecting to {host}…");
+            }
             let status = ssh()
                 .args(connection.control_options("yes"))
                 .args(["-o", "ControlPersist=120", "-f", "-N", host])
@@ -91,8 +126,60 @@ impl Connection {
             if !status.success() {
                 return Err(connect_error(host, status));
             }
+            // Keeps the output apart from ssh's prompts, as after a spinner.
+            if terminal && !silent {
+                eprintln!();
+            }
+        }
+        #[cfg(not(unix))]
+        if !silent {
+            eprintln!("Connecting to {host}…");
         }
         Ok(connection)
+    }
+
+    /// Opens the shared connection behind a spinner, with ssh's prompts
+    /// turned off (`BatchMode`): with a key in the SSH agent nothing needs
+    /// asking, and the spinner leaves an empty line before the output once
+    /// connected, like the CLI's other loaders. False when ssh
+    /// needs to ask something (a password, a passphrase, a new host key),
+    /// so the caller connects again with its prompts. A machine ssh can't
+    /// reach fails here, rather than being tried twice.
+    #[cfg(unix)]
+    fn connect_without_prompts(&self, silent: bool) -> Result<bool> {
+        let mut spinner = (!silent)
+            .then(|| new_spinner(format!("Connecting to {}…", self.host), Streams::Stderr));
+        let output = ssh()
+            .args(self.control_options("yes"))
+            .args([
+                "-o",
+                "ControlPersist=120",
+                "-o",
+                "BatchMode=yes",
+                "-f",
+                "-N",
+            ])
+            .arg(&self.host)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .context("Could not start `ssh`")?;
+        if output.status.success() {
+            if let Some(spinner) = &mut spinner {
+                spinner.stop_with_message("");
+            }
+            return Ok(true);
+        }
+        if let Some(spinner) = &mut spinner {
+            spinner.clear();
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if unreachable(&stderr) {
+            eprint!("{stderr}");
+            return Err(connect_error(&self.host, output.status));
+        }
+        Ok(false)
     }
 
     fn control_options(&self, master: &str) -> Vec<String> {
@@ -107,12 +194,29 @@ impl Connection {
         }
     }
 
+    /// Whether the connection is already open and shared, so a later `ssh`
+    /// can't fail to log in: false on Windows, where each step connects.
+    fn shared(&self) -> bool {
+        self.control_dir.is_some()
+    }
+
+    /// `-t` for a terminal session over the shared connection, with `-q`
+    /// dropping ssh's "Shared connection to <address> closed." at the end.
+    /// Not without one: there `-q` would hide why logging in failed.
+    fn terminal_args(&self) -> &'static [&'static str] {
+        if self.shared() {
+            &["-t", "-q"]
+        } else {
+            &["-t"]
+        }
+    }
+
     /// `ssh [-t] <host> <remote_command>` over the shared connection.
     fn command(&self, tty: bool, remote_command: &str) -> Command {
         let mut command = ssh();
         command.args(self.control_options("no"));
         if tty {
-            command.arg("-t");
+            command.args(self.terminal_args());
         }
         command.args([&self.host, remote_command]);
         command
@@ -157,28 +261,283 @@ impl Drop for Connection {
     }
 }
 
-pub fn handle_ssh_command(cmd: SshCommand) -> Result<()> {
+/// `json` is the global `--json`; only `ssh sessions list` has data to show
+/// that way.
+pub fn handle_ssh_command(cmd: SshCommand, json: bool, silent: bool) -> Result<()> {
     if which_ssh().is_none() {
         bail!("`ssh` was not found on this machine.");
     }
     match cmd.subcommand {
         SshSubcommand::Install(args) => {
             validate_host(&args.host)?;
-            install(args)
+            install(args, silent)
         }
         SshSubcommand::Setup(args) => {
             validate_host(&args.host)?;
-            setup(args)
+            setup(args, silent)
+        }
+        SshSubcommand::Doctor(args) => {
+            validate_host(&args.host)?;
+            doctor(args, silent)
         }
         SshSubcommand::Uninstall(args) => {
             validate_host(&args.host)?;
-            uninstall(args)
+            uninstall(args, silent)
         }
         SshSubcommand::Open(args) => {
             validate_host(&args.host)?;
-            open(args)
+            open(args, silent)
+        }
+        SshSubcommand::Sessions(args) => match args.subcommand {
+            SshSessionsSubcommand::List(args) => {
+                validate_host(&args.host)?;
+                list_sessions(args, json, silent)
+            }
+            SshSessionsSubcommand::Close(args) => {
+                validate_host(&args.host)?;
+                close_session(args, silent)
+            }
+        },
+    }
+}
+
+/// Exit code of `close_script` when there's no session by that name.
+const NO_SUCH_SESSION: i32 = 4;
+
+/// POSIX sh printing zellij's session names, one per line: zellij before
+/// 0.40 has no `--short`, so there the first word of its listing is the
+/// name. `ssh sessions list` and `close` both read it.
+const ZELLIJ_SESSION_NAMES: &str = "zellij list-sessions --short 2>/dev/null || zellij list-sessions --no-formatting 2>/dev/null | cut -d ' ' -f 1";
+
+/// The multiplexer's name and the remote command for `ssh sessions close`,
+/// given the session name as `$1`: exits `NO_SUCH_SESSION` without that
+/// session, and otherwise, with `close` as `$2`, closes it with everything
+/// running in it. Without `$2` it only checks, so the question comes after.
+fn close_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
+    // tmux's `=` matches the whole name, not a prefix of another session's.
+    // zellij's `delete-session --force` also stops a running session and
+    // keeps it from being offered for resurrection; versions without it
+    // only have `kill-session`.
+    let (binary, close) = match multiplexer {
+        Multiplexer::Tmux => (
+            "tmux",
+            "tmux has-session -t \"=$1\" 2>/dev/null || exit {missing}\n{only_check}\ntmux kill-session -t \"=$1\"".to_owned(),
+        ),
+        Multiplexer::Screen => (
+            "screen",
+            "screen -ls | grep -qE \"^[[:space:]]+[0-9]+\\\\.$1[[:space:]]\" || exit {missing}\n{only_check}\nscreen -S \"$1\" -X quit".to_owned(),
+        ),
+        Multiplexer::Zellij => (
+            "zellij",
+            format!(
+                "{{ {ZELLIJ_SESSION_NAMES}; }} | grep -qx \"$1\" || exit {{missing}}\n{{only_check}}\nzellij delete-session --force \"$1\" 2>/dev/null || zellij kill-session \"$1\""
+            ),
+        ),
+        Multiplexer::None => return None,
+    };
+    Some((
+        binary,
+        format!(
+            "command -v {binary} >/dev/null 2>&1 || exit {NOT_INSTALLED}\n{}\n",
+            close
+                .replace("{missing}", &NO_SUCH_SESSION.to_string())
+                .replace("{only_check}", "[ \"$2\" = close ] || exit 0")
+        ),
+    ))
+}
+
+/// Closes a session `ssh open --session` made, after asking: it stops the
+/// agents and anything else running in it.
+fn close_session(cmd: SshSessionsClose, silent: bool) -> Result<()> {
+    let host = cmd.host;
+    let name = cmd.name;
+    validate_session(&name)?;
+    let Some((binary, script)) = close_script(cmd.multiplexer) else {
+        bail!("Without a multiplexer (`--with none`) there are no sessions to close.");
+    };
+    let ssh = Connection::open(&host, silent)?;
+    let run = |args: &[String]| {
+        let status = ssh
+            .command(false, &sh_command(&script, args))
+            .stdin(Stdio::null())
+            .status()
+            .context("Could not start `ssh`")?;
+        match status.code() {
+            Some(0) => Ok(()),
+            Some(NOT_INSTALLED) => bail!("{binary} is not installed on {host}."),
+            Some(NO_SUCH_SESSION) => bail!(
+                "There's no {binary} session '{name}' on {host}. List them with: stashbase ssh sessions list {host}"
+            ),
+            _ => bail!("Closing session '{name}' on {host} failed (ssh exited with {status})."),
+        }
+    };
+    // Look the session up before asking, so the question is about one
+    // that exists.
+    run(std::slice::from_ref(&name))?;
+
+    // Short, so it fits on one line: a question that wraps is drawn again
+    // under itself once answered.
+    let question = format!("Close {binary} session '{name}' on {host}?");
+    if !cmd.yes {
+        if !std::io::stdin().is_terminal() {
+            bail!("{question} Pass --yes to proceed without confirmation.");
+        }
+        eprintln!("Everything running in session '{name}', such as agents, stops.");
+        if confirm_opt(&question) != Some(true) {
+            return Ok(());
         }
     }
+    run(&[name.clone(), "close".to_owned()])?;
+    eprintln!(
+        "{} Closed session '{name}' on {host}.",
+        "Done:".green_if_tty_stderr()
+    );
+    Ok(())
+}
+
+/// The multiplexer's name and the remote command for `ssh sessions list`:
+/// one line per session, read by `parse_sessions`, or nothing when there are
+/// none; exits `NOT_INSTALLED` without the multiplexer.
+fn sessions_script(multiplexer: Multiplexer) -> Option<(&'static str, String)> {
+    // Each exits non-zero with only a message when there are no sessions,
+    // and screen lists its sessions between other lines.
+    let (binary, list) = match multiplexer {
+        Multiplexer::Tmux => (
+            "tmux",
+            "tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_windows}|#{session_created}' 2>/dev/null",
+        ),
+        Multiplexer::Screen => ("screen", "screen -ls | grep -E '^[[:space:]]+[0-9]+\\.'"),
+        Multiplexer::Zellij => ("zellij", ZELLIJ_SESSION_NAMES),
+        Multiplexer::None => return None,
+    };
+    Some((
+        binary,
+        format!("command -v {binary} >/dev/null 2>&1 || exit {NOT_INSTALLED}\n{list}\nexit 0\n"),
+    ))
+}
+
+/// A session on the machine, as `ssh sessions list` shows it. Fields the
+/// multiplexer doesn't report are `None` (`null` in JSON): screen has no
+/// window count or creation time, zellij reports only names.
+#[derive(Debug, PartialEq, Eq, Serialize, Tabled)]
+struct RemoteSession {
+    #[tabled(rename = "Name")]
+    name: String,
+    #[tabled(rename = "Attached", display_with = "display_attached")]
+    attached: Option<bool>,
+    #[tabled(rename = "Windows", display_with = "display_unknown")]
+    windows: Option<u32>,
+    #[tabled(rename = "Created", display_with = "display_unknown")]
+    created_at: Option<String>,
+}
+
+fn display_attached(attached: &Option<bool>) -> String {
+    match attached {
+        Some(true) => "yes".to_owned(),
+        Some(false) => "no".to_owned(),
+        None => "---".to_owned(),
+    }
+}
+
+fn display_unknown<T: std::fmt::Display>(value: &Option<T>) -> String {
+    value
+        .as_ref()
+        .map_or_else(|| "---".to_owned(), ToString::to_string)
+}
+
+/// Reads `sessions_script`'s output.
+fn parse_sessions(multiplexer: Multiplexer, output: &str) -> Vec<RemoteSession> {
+    let lines = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    match multiplexer {
+        // `name|attached clients|windows|created (Unix time)`, read from the
+        // right: a name may itself contain `|`.
+        Multiplexer::Tmux => lines
+            .filter_map(|line| {
+                let mut fields = line.rsplitn(4, '|');
+                let created = fields.next()?.parse::<i64>().ok();
+                let windows = fields.next()?.parse::<u32>().ok();
+                let attached = fields
+                    .next()?
+                    .parse::<u32>()
+                    .ok()
+                    .map(|clients| clients > 0);
+                Some(RemoteSession {
+                    name: fields.next()?.to_owned(),
+                    attached,
+                    windows,
+                    created_at: created
+                        .and_then(|secs| chrono::DateTime::from_timestamp(secs, 0))
+                        .map(format_utc),
+                })
+            })
+            .collect(),
+        // `12345.name  (date)  (Attached)`, `(Detached)` or `(Multi, attached)`.
+        Multiplexer::Screen => lines
+            .filter_map(|line| {
+                let (_, name) = line.split_whitespace().next()?.split_once('.')?;
+                Some(RemoteSession {
+                    name: name.to_owned(),
+                    attached: Some(line.to_ascii_lowercase().contains("attached)")),
+                    windows: None,
+                    created_at: None,
+                })
+            })
+            .collect(),
+        Multiplexer::Zellij => lines
+            .map(|name| RemoteSession {
+                name: name.to_owned(),
+                attached: None,
+                windows: None,
+                created_at: None,
+            })
+            .collect(),
+        Multiplexer::None => Vec::new(),
+    }
+}
+
+/// Lists the sessions `ssh open --session` can attach to.
+fn list_sessions(cmd: SshSessionsList, json: bool, silent: bool) -> Result<()> {
+    let host = cmd.host;
+    let Some((binary, script)) = sessions_script(cmd.multiplexer) else {
+        bail!("Without a multiplexer (`--with none`) there are no sessions to list.");
+    };
+    let ssh = Connection::open(&host, silent)?;
+    let output = ssh
+        .command(false, &sh_command(&script, &[]))
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("Could not start `ssh`")?;
+    match output.status.code() {
+        Some(0) => {}
+        Some(NOT_INSTALLED) => bail!("{binary} is not installed on {host}."),
+        _ => bail!(
+            "Listing {binary} sessions on {host} failed (ssh exited with {}).",
+            output.status
+        ),
+    }
+    let sessions = parse_sessions(cmd.multiplexer, &String::from_utf8_lossy(&output.stdout));
+    if json {
+        println!("{}", get_formatted_json_string(&sessions, true)?);
+        return Ok(());
+    }
+    if sessions.is_empty() {
+        eprintln!("No {binary} sessions on {host}. Start one with: stashbase ssh open {host}");
+        return Ok(());
+    }
+    println!("{}", build_table(&sessions));
+    let with = match cmd.multiplexer {
+        Multiplexer::Tmux => String::new(),
+        _ => format!(" --with {binary}"),
+    };
+    eprintln!(
+        "\nAttach with: stashbase ssh open {host}{with} --session <name>\n\
+         Close with: stashbase ssh sessions close {host} <name>{with}"
+    );
+    Ok(())
 }
 
 /// Checks `--session`: tmux turns `.` and `:` into `_` and screen and
@@ -219,7 +578,7 @@ fn open_script(multiplexer: Multiplexer, session: &str) -> Option<String> {
 /// Connects with the user's own `ssh` and attaches to the session (named
 /// `stashbase` by default); detaching or a dropped connection leaves it
 /// running.
-fn open(cmd: SshOpen) -> Result<()> {
+fn open(cmd: SshOpen, silent: bool) -> Result<()> {
     let host = cmd.host;
     validate_session(&cmd.session)?;
     let forwards = cmd
@@ -227,24 +586,40 @@ fn open(cmd: SshOpen) -> Result<()> {
         .iter()
         .map(|spec| port_forward(spec))
         .collect::<Result<Vec<_>>>()?;
-    eprintln!("Connecting to {host}…");
-    let mut command = ssh();
+    // ssh would only warn, and `-q` below hides that, leaving the session
+    // without the forward.
     for (local, remote) in &forwards {
-        eprintln!("Forwarding localhost:{local} to port {remote} on {host}");
+        if std::net::TcpListener::bind(("127.0.0.1", *local)).is_err() {
+            bail!(
+                "Port {local} on this computer is already in use. Pick another local port, e.g. --port 8080:{remote}"
+            );
+        }
+    }
+    // The shared connection, so connecting shows the same spinner (or
+    // prompts) as the other commands; the session then runs over it.
+    let ssh = Connection::open(&host, silent)?;
+    let mut command = self::ssh();
+    command.args(ssh.control_options("no"));
+    for (local, remote) in &forwards {
+        if !silent {
+            eprintln!("Forwarding localhost:{local} to port {remote} on {host}");
+        }
         command.args(["-L", &format!("127.0.0.1:{local}:localhost:{remote}")]);
     }
-    // Keepalives stop NAT and cloud firewalls from cutting an idle session,
-    // such as one where an agent works quietly for a long time.
-    command.args(["-o", "ServerAliveInterval=30", "-t", &host]);
+    command.args(ssh.terminal_args()).arg(&host);
     if let Some(script) = open_script(cmd.multiplexer, &cmd.session) {
         command.arg(sh_command(&script, &[]));
     }
     let status = command.status().context("Could not start `ssh`")?;
-    // 255 is ssh's own failure; anything else is how the remote shell ended.
-    if status.code() == Some(255) {
-        return Err(connect_error(&host, status));
+    // 255 is ssh's own failure: after the shared connection opened, the
+    // connection dropped. Anything else is how the remote shell ended.
+    match status.code() {
+        Some(255) if ssh.shared() => bail!(
+            "The connection to {host} was lost. The session keeps running there; open it again with: stashbase ssh open {host}"
+        ),
+        Some(255) => Err(connect_error(&host, status)),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// Parses `--port`: `3000` forwards local 3000 to the machine's 3000,
@@ -267,9 +642,9 @@ fn port_forward(spec: &str) -> Result<(u16, u16)> {
     }
 }
 
-fn install(cmd: SshInstall) -> Result<()> {
+fn install(cmd: SshInstall, silent: bool) -> Result<()> {
     let host = cmd.host;
-    let ssh = Connection::open(&host)?;
+    let ssh = Connection::open(&host, silent)?;
 
     // One round trip for the platform and any existing copies: the one the
     // login shell runs (`bin`) and others install.sh or PATH might pick.
@@ -284,10 +659,14 @@ fn install(cmd: SshInstall) -> Result<()> {
         bail!("{host} runs {}, {reason}", found.platform);
     }
 
-    let question = install_question(&host, &found);
+    let (found_line, question) = install_question(&host, &found);
     if !cmd.yes {
+        let found_line = found_line.map(|line| line + " ").unwrap_or_default();
         if !std::io::stdin().is_terminal() {
-            bail!("{question} Pass --yes to proceed without confirmation.");
+            bail!("{found_line}{question} Pass --yes to proceed without confirmation.");
+        }
+        if !found_line.is_empty() {
+            eprintln!("{}", found_line.trim_end());
         }
         if confirm_opt(&question) != Some(true) {
             return Ok(());
@@ -363,15 +742,21 @@ impl Probe {
     }
 }
 
-/// What `ssh install` asks before installing or updating.
-fn install_question(host: &str, probe: &Probe) -> String {
+/// What `ssh install` found, if anything, and what it then asks. The
+/// question stays short, so it fits on one line: a question that wraps is
+/// drawn again under itself once answered.
+fn install_question(host: &str, probe: &Probe) -> (Option<String>, String) {
     let platform = &probe.platform;
     match (probe.bin.as_deref(), probe.version.as_deref()) {
-        (Some(bin), Some(version)) => {
-            format!("Update stashbase on {host} ({version} at {bin}) to the latest release?")
-        }
-        (Some(bin), None) => format!("Replace {bin} on {host} with the latest stashbase?"),
-        _ => format!("Install stashbase on {host} ({platform})?"),
+        (Some(bin), Some(version)) => (
+            Some(format!("{host} has {version} at {bin}.")),
+            "Update it to the latest release?".to_owned(),
+        ),
+        (Some(bin), None) => (
+            Some(format!("{host} has {bin}, which doesn't report a version.")),
+            "Replace it with the latest stashbase?".to_owned(),
+        ),
+        _ => (None, format!("Install stashbase on {host} ({platform})?")),
     }
 }
 
@@ -408,32 +793,179 @@ pub fn detached_agent_hint(
     )
 }
 
+/// POSIX sh, with `bin` set, that runs the machine's `doctor` and `agent
+/// docker doctor` and sets `checks` to the exit status of `doctor`. Docker
+/// is needed only by some profiles, so its findings never count as failed.
+const CHECKS: &str = "\"$bin\" doctor --auth-check\n\
+     checks=$?\n\
+     echo\n\
+     echo 'Docker sandbox (needed only for agent profiles with backend = \"docker\"):'\n\
+     \"$bin\" agent docker doctor\n";
+
 /// Remote command for `ssh setup`: the machine's own interactive setup, then
-/// its `doctor` and `agent docker doctor`, so a key that doesn't work or a
-/// missing Docker shows up now, with its fix, rather than on the first run.
-/// The doctors' findings don't fail the setup.
+/// its checks, so a key that doesn't work or a missing Docker shows up now,
+/// with its fix, rather than on the first run. The checks don't fail the
+/// setup.
 fn setup_script() -> String {
     format!(
         "{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\n\
          \"$bin\" setup || exit $?\n\
          echo\n\
-         \"$bin\" doctor --auth-check\n\
-         echo\n\
-         echo 'Docker sandbox (needed only for agent profiles with backend = \"docker\"):'\n\
-         \"$bin\" agent docker doctor\n\
-         exit 0\n"
+         {CHECKS}exit 0\n"
     )
 }
 
+/// Remote command for `ssh doctor`: the checks `ssh setup` ends with,
+/// failing when `doctor` does.
+fn doctor_script() -> String {
+    format!("{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\n{CHECKS}exit $checks\n")
+}
+
+/// Runs the machine's checks, after comparing its CLI's version with this
+/// one: an older copy there may lack fixes or reject newer profile options.
+fn doctor(cmd: SshDoctor, silent: bool) -> Result<()> {
+    let host = cmd.host;
+    let ssh = Connection::open(&host, silent)?;
+    let term = std::env::var("TERM").unwrap_or_default();
+    let found = ssh.output(&sh_command(&session_probe(), std::slice::from_ref(&term)))?;
+    let found = SessionProbe::parse(&found);
+    let Some(remote) = found.version.as_deref() else {
+        bail!(
+            "stashbase is not installed on {host}. Install it with: stashbase ssh install {host}"
+        );
+    };
+    let local = env!("CARGO_PKG_VERSION");
+    eprintln!("stashbase {remote} on {host} (this computer: {local})");
+    if version_is_older(remote, local) {
+        eprintln!(
+            "{} {host} runs an older stashbase. Update it with: stashbase ssh install {host}",
+            "Warning:".yellow_if_tty_stderr()
+        );
+    }
+    eprintln!("\nRemote sessions (stashbase ssh open):");
+    for (ready, message) in found.findings(&host, &term) {
+        let mark = if ready {
+            "✓".green_if_tty_stderr()
+        } else {
+            "!".yellow_if_tty_stderr()
+        };
+        eprintln!("{mark} {message}");
+    }
+    eprintln!();
+
+    // A terminal there keeps the checks' colors; ssh allocates one only when
+    // its own stdin is a terminal.
+    let tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let status = ssh
+        .command(tty, &sh_command(&doctor_script(), &[]))
+        .status()
+        .context("Could not start `ssh`")?;
+    match status.code() {
+        Some(0) => Ok(()),
+        Some(NOT_INSTALLED) => {
+            bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
+        }
+        Some(255) => Err(connect_error(&host, status)),
+        _ => bail!("The checks on {host} found failures; see above for how to fix them."),
+    }
+}
+
+/// POSIX sh for `ssh doctor`'s first round trip, given the local `$TERM` as
+/// `$1`: the CLI's version, tmux's, and whether the machine has terminfo for
+/// that terminal. `term=` is left out when there's no `infocmp` to ask.
+fn session_probe() -> String {
+    format!(
+        "{LOCATE_BINARY}{}",
+        r#"[ -n "$bin" ] && echo "version=$("$bin" --version 2>/dev/null)"
+command -v tmux >/dev/null 2>&1 && echo "tmux=$(tmux -V 2>/dev/null)"
+if [ -n "$1" ] && command -v infocmp >/dev/null 2>&1; then
+  if infocmp "$1" >/dev/null 2>&1; then echo term=known; else echo term=unknown; fi
+fi
+true
+"#
+    )
+}
+
+/// What `ssh doctor` found about sessions on the machine.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SessionProbe {
+    /// `stashbase --version` without the name, such as `0.24.0`.
+    version: Option<String>,
+    /// `tmux -V`, such as `tmux 3.5a`.
+    tmux: Option<String>,
+    /// Whether the machine has terminfo for the local terminal; `None` when
+    /// it couldn't tell.
+    term_known: Option<bool>,
+}
+
+impl SessionProbe {
+    fn parse(output: &str) -> Self {
+        let mut probe = Self::default();
+        for line in output.lines() {
+            let Some((name, value)) = line.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            match name {
+                "version" => {
+                    probe.version = value.split_whitespace().last().map(str::to_owned);
+                }
+                "tmux" if !value.is_empty() => probe.tmux = Some(value.to_owned()),
+                "term" => probe.term_known = Some(value == "known"),
+                _ => {}
+            }
+        }
+        probe
+    }
+
+    /// What `ssh open` will find there, as (ready, message) pairs. Only
+    /// hints: `ssh open` falls back to a plain shell or `xterm-256color`.
+    fn findings(&self, host: &str, term: &str) -> Vec<(bool, String)> {
+        let mut findings = vec![match &self.tmux {
+            Some(tmux) => (true, tmux.clone()),
+            None => (
+                false,
+                "tmux is not installed, so `ssh open` gives a plain shell and agents stop if the connection drops. Install it, e.g. `sudo apt-get install tmux`".to_owned(),
+            ),
+        }];
+        match self.term_known {
+            Some(true) => findings.push((true, format!("Terminal {term} is known"))),
+            Some(false) => findings.push((
+                false,
+                format!(
+                    "Terminal {term} is unknown there, so `ssh open` falls back to xterm-256color. Copy it once with:\n  infocmp -x {term} | ssh {host} -- tic -x -"
+                ),
+            )),
+            None => {}
+        }
+        findings
+    }
+}
+
+/// Whether version `a` comes before `b`, comparing dotted numbers such as
+/// `0.23.1`. False when either isn't one, so an odd version never warns.
+fn version_is_older(a: &str, b: &str) -> bool {
+    let parse = |version: &str| {
+        version
+            .split('.')
+            .map(|part| part.parse::<u64>().ok())
+            .collect::<Option<Vec<_>>>()
+    };
+    match (parse(a), parse(b)) {
+        (Some(a), Some(b)) => a < b,
+        _ => false,
+    }
+}
+
 /// Runs the machine's own interactive `stashbase setup` in a terminal session.
-fn setup(cmd: SshSetup) -> Result<()> {
+fn setup(cmd: SshSetup, silent: bool) -> Result<()> {
     let host = cmd.host;
     if !std::io::stdin().is_terminal() {
         bail!("`stashbase ssh setup` is interactive and needs a terminal.");
     }
-    eprintln!("Connecting to {host}…");
-    let status = ssh()
-        .args(["-t", &host, &sh_command(&setup_script(), &[])])
+    let ssh = Connection::open(&host, silent)?;
+    let status = ssh
+        .command(true, &sh_command(&setup_script(), &[]))
         .status()
         .context("Could not start `ssh`")?;
     match status.code() {
@@ -448,6 +980,9 @@ fn setup(cmd: SshSetup) -> Result<()> {
         Some(NOT_INSTALLED) => {
             bail!("stashbase is not installed on {host}. Install it with: stashbase ssh install {host}")
         }
+        // ssh's own failure: after the shared connection opened, the
+        // connection dropped.
+        Some(255) if ssh.shared() => bail!("The connection to {host} was lost during setup. Run it again with: stashbase ssh setup {host}"),
         Some(255) => Err(connect_error(&host, status)),
         _ => bail!("Setup on {host} failed (ssh exited with {status})."),
     }
@@ -499,9 +1034,9 @@ fn removal_summary(host: &str, installation: &Installation) -> String {
 /// Removes the binary, the stored API keys (also from a keyring, through the
 /// machine's own `config reset`) and the config directory, after showing
 /// exactly what goes.
-fn uninstall(cmd: SshUninstall) -> Result<()> {
+fn uninstall(cmd: SshUninstall, silent: bool) -> Result<()> {
     let host = cmd.host;
-    let ssh = Connection::open(&host)?;
+    let ssh = Connection::open(&host, silent)?;
     let inspect = format!(
         "{LOCATE_BINARY}{LOCATE_CONFIG_DIR}echo \"bin=$bin\"\n[ -d \"$dir\" ] && echo \"config=$dir\"\necho \"agent_profiles=$(ls \"$dir/agents\"/*.toml 2>/dev/null | wc -l)\"\n"
     );
@@ -798,6 +1333,164 @@ mod tests {
     }
 
     #[test]
+    fn doctor_fails_only_when_the_machines_doctor_does() {
+        let script = doctor_script();
+        let doctor = script
+            .find("\"$bin\" doctor --auth-check\nchecks=$?")
+            .unwrap();
+        let docker = script.find("\"$bin\" agent docker doctor").unwrap();
+        assert!(doctor < docker);
+        assert!(script.ends_with("exit $checks\n"));
+    }
+
+    #[test]
+    fn session_probe_reads_version_tmux_and_terminal() {
+        let found = SessionProbe::parse("version=stashbase 0.24.0\ntmux=tmux 3.5a\nterm=unknown\n");
+        assert_eq!(
+            found,
+            SessionProbe {
+                version: Some("0.24.0".to_owned()),
+                tmux: Some("tmux 3.5a".to_owned()),
+                term_known: Some(false),
+            }
+        );
+        let findings = found.findings("mybox", "xterm-ghostty");
+        assert_eq!(findings[0], (true, "tmux 3.5a".to_owned()));
+        assert!(!findings[1].0);
+        assert!(findings[1]
+            .1
+            .ends_with("infocmp -x xterm-ghostty | ssh mybox -- tic -x -"));
+    }
+
+    #[test]
+    fn session_probe_flags_missing_tmux_and_skips_an_unchecked_terminal() {
+        let found = SessionProbe::parse("version=stashbase 0.24.0\n");
+        assert_eq!(found.version.as_deref(), Some("0.24.0"));
+        let findings = found.findings("mybox", "xterm-ghostty");
+        assert_eq!(findings.len(), 1);
+        assert!(!findings[0].0 && findings[0].1.starts_with("tmux is not installed"));
+        assert_eq!(SessionProbe::parse("").version, None);
+    }
+
+    #[test]
+    fn sessions_lists_with_the_multiplexer_open_attaches_with() {
+        let (binary, script) = sessions_script(Multiplexer::Tmux).unwrap();
+        assert_eq!(binary, "tmux");
+        assert!(script.starts_with(&format!(
+            "command -v tmux >/dev/null 2>&1 || exit {NOT_INSTALLED}\n"
+        )));
+        assert!(script.contains("tmux list-sessions -F"));
+        assert!(script.ends_with("exit 0\n"));
+        assert_eq!(sessions_script(Multiplexer::Screen).unwrap().0, "screen");
+        assert_eq!(sessions_script(Multiplexer::Zellij).unwrap().0, "zellij");
+        assert!(sessions_script(Multiplexer::None).is_none());
+    }
+
+    #[test]
+    fn sessions_are_read_from_each_multiplexers_list() {
+        assert_eq!(
+            parse_sessions(
+                Multiplexer::Tmux,
+                "stashbase|1|2|1761638832\nwork|a|b|0|1|1761638900\n"
+            ),
+            vec![
+                RemoteSession {
+                    name: "stashbase".to_owned(),
+                    attached: Some(true),
+                    windows: Some(2),
+                    created_at: Some("2025-10-28T08:07:12Z".to_owned()),
+                },
+                RemoteSession {
+                    name: "work|a|b".to_owned(),
+                    attached: Some(false),
+                    windows: Some(1),
+                    created_at: Some("2025-10-28T08:08:20Z".to_owned()),
+                },
+            ]
+        );
+        let screen = parse_sessions(
+            Multiplexer::Screen,
+            "\t4321.stashbase\t(10/28/2026 08:00:00 AM)\t(Attached)\n\t4400.work\t(Detached)\n\t4500.both\t(Multi, attached)\n",
+        );
+        assert_eq!(
+            screen
+                .iter()
+                .map(|session| (session.name.as_str(), session.attached))
+                .collect::<Vec<_>>(),
+            [
+                ("stashbase", Some(true)),
+                ("work", Some(false)),
+                ("both", Some(true))
+            ]
+        );
+        assert_eq!(
+            parse_sessions(Multiplexer::Zellij, "stashbase\nwork\n")[1],
+            RemoteSession {
+                name: "work".to_owned(),
+                attached: None,
+                windows: None,
+                created_at: None,
+            }
+        );
+        assert!(parse_sessions(Multiplexer::Tmux, "").is_empty());
+    }
+
+    #[test]
+    fn close_checks_the_exact_session_before_closing_it() {
+        let (binary, script) = close_script(Multiplexer::Tmux).unwrap();
+        assert_eq!(binary, "tmux");
+        let check = script
+            .find(&format!(
+                "tmux has-session -t \"=$1\" 2>/dev/null || exit {NO_SUCH_SESSION}"
+            ))
+            .unwrap();
+        let only_check = script.find("[ \"$2\" = close ] || exit 0").unwrap();
+        let kill = script.find("tmux kill-session -t \"=$1\"").unwrap();
+        assert!(check < only_check && only_check < kill);
+        for multiplexer in [Multiplexer::Screen, Multiplexer::Zellij] {
+            let (_, script) = close_script(multiplexer).unwrap();
+            assert!(script.contains(&format!("|| exit {NO_SUCH_SESSION}")));
+            assert!(script.contains("[ \"$2\" = close ] || exit 0"));
+            assert!(!script.contains("{missing}") && !script.contains("{only_check}"));
+        }
+        // zellij finds the session the same way `ssh sessions list` lists it,
+        // older versions included.
+        let (_, zellij) = close_script(Multiplexer::Zellij).unwrap();
+        assert!(zellij.contains(&format!("{{ {ZELLIJ_SESSION_NAMES}; }} | grep -qx \"$1\"")));
+        assert!(sessions_script(Multiplexer::Zellij)
+            .unwrap()
+            .1
+            .contains(ZELLIJ_SESSION_NAMES));
+        assert!(close_script(Multiplexer::None).is_none());
+    }
+
+    #[test]
+    fn only_an_unreachable_machine_skips_the_prompting_retry() {
+        for error in [
+            "ssh: Could not resolve hostname nobox: nodename nor servname provided",
+            "ssh: connect to host 10.0.0.9 port 22: Operation timed out",
+            "ssh: connect to host 127.0.0.1 port 2222: Connection refused",
+        ] {
+            assert!(unreachable(error), "{error}");
+        }
+        for error in [
+            "dev@mybox: Permission denied (publickey,password).",
+            "Host key verification failed.",
+        ] {
+            assert!(!unreachable(error), "{error}");
+        }
+    }
+
+    #[test]
+    fn version_is_older_compares_numbers_not_text() {
+        assert!(version_is_older("0.23.0", "0.24.0"));
+        assert!(version_is_older("0.9.0", "0.10.0"));
+        assert!(!version_is_older("0.24.0", "0.24.0"));
+        assert!(!version_is_older("0.25.0", "0.24.0"));
+        assert!(!version_is_older("0.24.0-beta", "0.25.0"));
+    }
+
+    #[test]
     fn port_forward_takes_one_port_or_local_and_remote() {
         assert_eq!(port_forward("3000").unwrap(), (3000, 3000));
         assert_eq!(port_forward("8080:3000").unwrap(), (8080, 3000));
@@ -857,21 +1550,30 @@ mod tests {
         let probe = |output: &str| Probe::parse(output);
         assert_eq!(
             install_question("mybox", &probe("Linux x86_64\n")),
-            "Install stashbase on mybox (Linux x86_64)?"
+            (
+                None,
+                "Install stashbase on mybox (Linux x86_64)?".to_owned()
+            )
         );
         assert_eq!(
             install_question(
                 "mybox",
                 &probe("Linux x86_64\nbin=/usr/local/bin/stashbase\nversion=stashbase 0.22.0\n")
             ),
-            "Update stashbase on mybox (stashbase 0.22.0 at /usr/local/bin/stashbase) to the latest release?"
+            (
+                Some("mybox has stashbase 0.22.0 at /usr/local/bin/stashbase.".to_owned()),
+                "Update it to the latest release?".to_owned()
+            )
         );
         assert_eq!(
             install_question(
                 "mybox",
                 &probe("Linux x86_64\nbin=/opt/sb/stashbase\nversion=\n")
             ),
-            "Replace /opt/sb/stashbase on mybox with the latest stashbase?"
+            (
+                Some("mybox has /opt/sb/stashbase, which doesn't report a version.".to_owned()),
+                "Replace it with the latest stashbase?".to_owned()
+            )
         );
     }
 

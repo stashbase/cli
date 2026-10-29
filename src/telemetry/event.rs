@@ -83,9 +83,11 @@ impl TrackedCommand {
             // and uninstall follow from it.
             EntityType::Ssh(SshCommand { subcommand }) => match subcommand {
                 SshSubcommand::Install(_) => Some(Self::SshInstall),
-                SshSubcommand::Setup(_) | SshSubcommand::Uninstall(_) | SshSubcommand::Open(_) => {
-                    None
-                }
+                SshSubcommand::Setup(_)
+                | SshSubcommand::Doctor(_)
+                | SshSubcommand::Uninstall(_)
+                | SshSubcommand::Open(_)
+                | SshSubcommand::Sessions(_) => None,
             },
             _ => None,
         }
