@@ -163,11 +163,28 @@ fn validate_working_directory() -> Check {
 /// alongside `agent validate` ensures a user cannot accidentally bypass its
 /// safety and determinism checks by invoking `agent run` directly.
 pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
-    let failures = validate_profile(profile)
-        .into_iter()
-        .chain(validate_hook_capabilities(profile))
-        .chain(validate_config_env(profile))
-        .chain(validate_runtime_requirements(profile))
+    ensure_checks_pass(
+        validate_profile(profile)
+            .into_iter()
+            .chain(validate_hook_capabilities(profile))
+            .chain(validate_config_env(profile))
+            .chain(validate_runtime_requirements(profile)),
+    )
+}
+
+/// The checks of `ensure_profile_is_valid_for_run` that don't depend on this
+/// machine, for code that edits a profile rather than running it.
+pub fn ensure_profile_is_valid(profile: &AgentProfile) -> Result<()> {
+    ensure_checks_pass(
+        validate_profile(profile)
+            .into_iter()
+            .chain(validate_hook_capabilities(profile))
+            .chain(validate_config_env(profile)),
+    )
+}
+
+fn ensure_checks_pass(checks: impl Iterator<Item = Check>) -> Result<()> {
+    let failures = checks
         .filter(|check| check.status == Status::Fail)
         .map(|check| format!("{}: {}", check.name, check.message))
         .collect::<Vec<_>>();

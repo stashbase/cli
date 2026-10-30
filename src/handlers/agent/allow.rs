@@ -15,7 +15,7 @@ use crate::{
     cmd::agent::AgentAllowCommand,
     handlers::{
         agent::policy::configured_host_matches,
-        agent::validate::ensure_profile_is_valid_for_run,
+        agent::validate::ensure_profile_is_valid,
         run::proxy::{read_local_proxy_audit_logs, ProxyAuditLogEvent, ProxyAuditLogFilter},
     },
     models::agent::AgentProfile,
@@ -152,7 +152,7 @@ fn add_egress_host(content: &str, host: &str) -> Result<String> {
 fn check_updated_profile(updated: &str, host: &str) -> Result<()> {
     let profile =
         toml::from_str::<AgentProfile>(updated).context("the edited profile does not parse")?;
-    ensure_profile_is_valid_for_run(&profile)?;
+    ensure_profile_is_valid(&profile)?;
     if !host_listed(profile.egress_hosts.as_deref(), host)
         || host_listed(profile.deny_hosts.as_deref(), host)
     {
