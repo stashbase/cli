@@ -11,7 +11,6 @@
     --border: hsl(0 0% 14.9%);
     --fg: hsl(0 0% 90%);
     --muted: hsl(0 0% 63.9%);
-    --accent: #D97757;
     --teal: #0bd8b6;
     --orange: #ffb86c;
     --red: #f68084;
@@ -39,8 +38,7 @@
 
   .hero { position: absolute; top: 84px; left: 0; right: 0; text-align: center; }
   h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 76px;
-    line-height: 1.03; letter-spacing: .01em; opacity: .85; }
-  h1 span { color: var(--accent); }
+    line-height: 1.03; letter-spacing: .01em; color: hsl(0 0% 98%); }
   .sub { margin: 18px auto 0; max-width: 620px; font-size: 18px; line-height: 1.6; color: var(--muted); letter-spacing: .01em; }
 
   .stage { position: absolute; top: 366px; left: 50%; transform: translateX(-50%);
@@ -76,7 +74,7 @@
   <div class="tag">open-source CLI</div>
 
   <div class="hero">
-    <h1>Access control for<br><span>coding agents</span></h1>
+    <h1>Access control for<br>coding agents</h1>
     <p class="sub">Run coding agents in a sandbox with access rules for files, APIs, and tools. Let them use credentials without seeing the real values.</p>
   </div>
 
