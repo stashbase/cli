@@ -368,15 +368,16 @@ stashbase agent logs list
 stashbase agent logs --session <id> --action injected
 ```
 
-### Allowing a blocked request
+### Allowing a blocked host
 
-When a run ends, `agent run` lists what the proxy blocked. Where a profile change can help, it prints an `agent allow` command next to the block:
+When the proxy blocked something, `agent run` ends with one line pointing to the review:
 
 ```bash
-stashbase agent allow <event-id>   # or --last for the most recent block
+stashbase agent allow                     # the most recent run (or --session <id>)
+stashbase agent allow <event-id>          # one block, e.g. from agent logs
 ```
 
-It adds the narrowest entry to the profile the run used: the host to `egress_hosts`, an allow rule for that exact method, host and path to the credential, or the tool to the MCP server's `allow_tools`. It shows the change and asks first (`--yes` skips the prompt). It refuses blocks that come from a deny rule, a body or arguments condition, or `deny_hosts`, and says why. The change applies from the next run.
+It reads the run's blocks from the audit log and lets you pick blocked hosts to add to `egress_hosts` in the profile the run used. It shows the change and asks first (`--yes` skips the prompt); the change applies from the next run. Hosts in `deny_hosts` are left alone. Other blocks (credential rules, MCP tools, filesystem) are listed with what decided them, to edit by hand; `stashbase agent explain` shows which rule applies.
 
 The agent itself gets a 403 telling it the block is profile policy and to ask you, so it doesn't keep retrying.
 

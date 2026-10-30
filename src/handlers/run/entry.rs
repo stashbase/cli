@@ -717,7 +717,7 @@ pub async fn handle_remote_agent_run(
     if !silent {
         eprintln!("Remote agent proxy relay stopped");
         if let Some(session_id) = &summary_session_id {
-            crate::handlers::agent::allow::print_run_denial_summary(session_id);
+            crate::handlers::agent::allow::print_run_denial_notice(session_id);
         }
     }
     let status = result?;
@@ -2030,7 +2030,7 @@ async fn handle_run(
         if !silent {
             eprintln!("Agent proxy stopped");
             if let Some(session_id) = &summary_session_id {
-                crate::handlers::agent::allow::print_run_denial_summary(session_id);
+                crate::handlers::agent::allow::print_run_denial_notice(session_id);
             }
         }
         result

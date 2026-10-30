@@ -1,5 +1,6 @@
-//! Turns a request the Agent Proxy denied into the narrowest profile change
-//! that allows it, and summarizes a run's denials when it ends.
+//! Turns hosts the Agent Proxy blocked into `egress_hosts` entries, from one
+//! audit event or a whole session's blocks. Other blocks are listed with why
+//! they need a hand edit.
 
 use std::{
     collections::BTreeMap,
@@ -13,178 +14,54 @@ use serde::Serialize;
 use crate::{
     cmd::agent::AgentAllowCommand,
     handlers::{
-        agent::policy::{
-            configured_host_matches, evaluate_secret_authorization, normalize_request_path,
-            normalize_secret_http_policy, SecretAuthorizationDecision, SecretHttpPolicy,
-        },
+        agent::policy::configured_host_matches,
         agent::validate::ensure_profile_is_valid_for_run,
         run::proxy::{read_local_proxy_audit_logs, ProxyAuditLogEvent, ProxyAuditLogFilter},
     },
-    models::agent::{AgentBindingProfile, AgentProfile},
+    models::agent::AgentProfile,
     utils::output::get_formatted_json_string,
 };
 
 /// Enough to cover any session the local audit retention keeps.
 const AUDIT_EVENT_LIMIT: usize = 100_000;
-const SUMMARY_GROUP_LIMIT: usize = 10;
 
-/// The profile change that allows one denied request.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ProfileChange {
-    /// Add `host` to top-level `egress_hosts`.
-    EgressHost { host: String },
-    /// Append an allow rule to `[<table>.<binding>]`.
-    CredentialRule {
-        table: &'static str,
-        binding: String,
-        host: String,
-        method: String,
-        path: String,
-    },
-    /// Add `tool` to `[mcp_servers.<server>] allow_tools`.
-    McpTool { server: String, tool: String },
-}
-
-impl ProfileChange {
-    fn describe(&self) -> String {
-        match self {
-            Self::EgressHost { host } => format!("add {host} to egress_hosts"),
-            Self::CredentialRule {
-                binding,
-                host,
-                method,
-                path,
-                ..
-            } => format!("allow {binding} for {method} {host}{path}"),
-            Self::McpTool { server, tool } => {
-                format!("add {tool} to the allow_tools of MCP server {server}")
-            }
-        }
-    }
-}
-
-/// Whether `agent allow` may be able to fix this denial. Cheap and
-/// profile-free, for the end-of-run summary; `denial_change` decides.
-fn may_be_fixable(event: &ProxyAuditLogEvent) -> bool {
-    match event.action.as_str() {
-        "host_denied" => event.binding_name.is_none() && event.destination_host.is_some(),
-        "credential_rule_denied" => event.reason.is_none() && event.path.is_some(),
-        "mcp_tool_denied" => {
-            event.reason.as_deref() == Some("tool_not_allowed") && event.mcp_tool.is_some()
-        }
-        _ => false,
-    }
-}
-
-/// The change that allows the denied request in `event`, or why there is
-/// none that `agent allow` can make safely.
-fn denial_change(
+/// The host to add to `egress_hosts` so the request in `event` is allowed,
+/// or why `agent allow` leaves it to a hand edit.
+fn egress_fix(
     event: &ProxyAuditLogEvent,
     profile: &AgentProfile,
-) -> std::result::Result<ProfileChange, String> {
+) -> std::result::Result<String, String> {
     let host = event.destination_host.clone().unwrap_or_default();
     match event.action.as_str() {
         "host_denied" if event.binding_name.is_some() => Err(format!(
-            "{} has a legacy `hosts` list that does not include {host}; add the host there, \
-             or replace `hosts` with `rules`",
+            "{}'s `hosts` list doesn't include {host}; edit it by hand",
             event.binding_name.as_deref().unwrap_or_default()
         )),
-        "host_denied" if host.is_empty() => Err("the denial does not name a host".to_owned()),
+        "host_denied" if host.is_empty() => Err("the block doesn't name a host".to_owned()),
         "host_denied" => {
             if host_listed(profile.deny_hosts.as_deref(), &host) {
-                return Err(format!(
-                    "{host} is listed in deny_hosts; remove it there if the agent needs it"
-                ));
+                return Err("in deny_hosts; remove it there if the agent needs it".to_owned());
             }
             if host_listed(profile.egress_hosts.as_deref(), &host) {
-                return Err(format!(
-                    "{host} is already in egress_hosts (the profile changed after the run)"
-                ));
+                return Err("already in egress_hosts".to_owned());
             }
-            Ok(ProfileChange::EgressHost { host })
+            Ok(host)
         }
-        "credential_rule_denied" => {
-            if let Some(reason) = &event.reason {
-                return Err(format!(
-                    "a rule's request conditions decided this ({reason}); edit them by hand"
-                ));
-            }
-            let binding = event
-                .binding_name
-                .clone()
-                .ok_or("the denial does not name a credential")?;
-            let method = event
-                .method
-                .clone()
-                .ok_or("the denial does not record a method")?;
-            let path = event.path.clone().ok_or(
-                "the denial does not record a path (runs before this version didn't); \
-                 add the rule by hand",
-            )?;
-            let (table, secret) = binding_entry(profile, &binding).ok_or(format!(
-                "credential {binding} is not in the profile (the profile changed after the run)"
-            ))?;
-            if secret.rules.is_empty() {
-                return Err(format!(
-                    "{binding} has a legacy `hosts` list; add {host} there, or replace `hosts` \
-                     with `rules`"
-                ));
-            }
-            match credential_decision(secret, &host, &method, &path) {
-                SecretAuthorizationDecision::DeniedRule => Err(format!(
-                    "a deny rule on {binding} matches {method} {host}{path}; deny rules win, so \
-                     change that rule if the agent needs this"
-                )),
-                SecretAuthorizationDecision::AllowedRule => Err(format!(
-                    "{binding} already allows {method} {host}{path} (the profile changed after \
-                     the run)"
-                )),
-                _ => Ok(ProfileChange::CredentialRule {
-                    table,
-                    binding,
-                    host,
-                    method,
-                    path,
-                }),
-            }
-        }
-        "mcp_tool_denied" => {
-            let tool = event
-                .mcp_tool
-                .clone()
-                .ok_or("the denial does not name an MCP tool")?;
-            match event.reason.as_deref() {
-                Some("tool_not_allowed") => {}
-                Some(reason) => {
-                    return Err(format!(
-                        "the MCP server's rules denied {tool} ({reason}); edit them by hand"
-                    ))
-                }
-                None => return Err(format!("the denial of {tool} records no reason")),
-            }
-            let path = event.path.as_deref().unwrap_or_default();
-            let server = profile
-                .mcp_servers
-                .iter()
-                .find(|(_, server)| {
-                    reqwest::Url::parse(&server.url).is_ok_and(|url| {
-                        url.host_str() == Some(host.as_str()) && url.path() == path
-                    })
-                })
-                .map(|(name, _)| name.clone())
-                .ok_or(format!(
-                    "no MCP server in the profile has the endpoint {host}{path}"
-                ))?;
-            Ok(ProfileChange::McpTool { server, tool })
-        }
-        "filesystem_denied" => Err(
-            "filesystem denials come from [filesystem] deny_read/deny_write; edit those by hand"
-                .to_owned(),
-        ),
-        action => Err(format!(
-            "`{action}` denials can't be allowed from the profile automatically"
+        "credential_rule_denied" => Err(format!(
+            "{}'s rules decided this; see `stashbase agent explain --profile {} --host {host} \
+             --method {} --path {}`",
+            event.binding_name.as_deref().unwrap_or("the credential"),
+            event.profile,
+            event.method.as_deref().unwrap_or("GET"),
+            event.path.as_deref().unwrap_or("/"),
         )),
+        "mcp_tool_denied" => Err(
+            "the MCP server's allow_tools or tool_rules decided this; edit them by hand".to_owned(),
+        ),
+        "filesystem_denied" => {
+            Err("[filesystem] deny_read/deny_write decided this; edit it by hand".to_owned())
+        }
+        action => Err(format!("`{action}` blocks aren't decided by egress_hosts")),
     }
 }
 
@@ -196,68 +73,14 @@ fn host_listed(hosts: Option<&[String]>, host: &str) -> bool {
     })
 }
 
-fn binding_entry<'a>(
-    profile: &'a AgentProfile,
-    binding: &str,
-) -> Option<(&'static str, &'a AgentBindingProfile)> {
-    profile
-        .secrets
-        .bindings
-        .get(binding)
-        .map(|secret| ("secrets", secret))
-        .or_else(|| {
-            profile
-                .personal_credentials
-                .get(binding)
-                .map(|secret| ("personal_credentials", secret))
-        })
-}
-
-/// The decision the proxy makes for a request without body conditions in
-/// play, with the same normalization it applies at startup.
-fn credential_decision(
-    secret: &AgentBindingProfile,
-    host: &str,
-    method: &str,
-    path: &str,
-) -> SecretAuthorizationDecision {
-    let policy = normalize_secret_http_policy(SecretHttpPolicy::Rules(secret.rules.clone()));
-    evaluate_secret_authorization(&policy, host, method, &normalize_request_path(path))
-}
-
-/// The profile text with `change` applied. Edits are line-based so comments
-/// and layout survive; callers re-parse the result before writing it.
-fn apply_change(content: &str, change: &ProfileChange) -> Result<String> {
-    match change {
-        ProfileChange::EgressHost { host } => add_egress_host(content, host),
-        ProfileChange::CredentialRule {
-            table,
-            binding,
-            host,
-            method,
-            path,
-        } => Ok(append_credential_rule(
-            content, table, binding, host, method, path,
-        )?),
-        ProfileChange::McpTool { server, tool } => {
-            let profile = toml::from_str::<AgentProfile>(content)?;
-            let mut tools = profile
-                .mcp_servers
-                .get(server)
-                .map(|server| server.allow_tools.clone())
-                .unwrap_or_default();
-            tools.push(tool.clone());
-            crate::handlers::agent::mcp::replace_mcp_allow_tools(content, server, &tools)
-        }
-    }
-}
-
 /// The part of a TOML line before a comment. Hosts and the keys we look for
 /// never contain `#`, so a plain split is enough here.
 fn code_part(line: &str) -> &str {
     line.split('#').next().unwrap_or(line)
 }
 
+/// The profile text with `host` added to `egress_hosts`. The edit is
+/// line-based so comments and layout survive; callers re-check the result.
 fn add_egress_host(content: &str, host: &str) -> Result<String> {
     let quoted = serde_json::to_string(host)?;
     let mut lines = content.lines().map(str::to_owned).collect::<Vec<_>>();
@@ -324,135 +147,59 @@ fn add_egress_host(content: &str, host: &str) -> Result<String> {
     Ok(result)
 }
 
-/// A TOML key as written in a table header: bare when it can be.
-fn toml_key(key: &str) -> Result<String> {
-    if !key.is_empty()
-        && key
-            .chars()
-            .all(|char| char.is_ascii_alphanumeric() || char == '_' || char == '-')
-    {
-        Ok(key.to_owned())
-    } else {
-        Ok(serde_json::to_string(key)?)
-    }
-}
-
-fn credential_rule_snippet(
-    table: &str,
-    binding: &str,
-    host: &str,
-    method: &str,
-    path: &str,
-) -> Result<String> {
-    Ok(format!(
-        "[[{table}.{}.rules]]\neffect = \"allow\"\nhosts = [{}]\nmethods = [{}]\npaths = [{}]\n",
-        toml_key(binding)?,
-        serde_json::to_string(host)?,
-        serde_json::to_string(method)?,
-        serde_json::to_string(path)?,
-    ))
-}
-
-fn append_credential_rule(
-    content: &str,
-    table: &str,
-    binding: &str,
-    host: &str,
-    method: &str,
-    path: &str,
-) -> Result<String> {
-    let mut result = content.to_owned();
-    if !result.is_empty() && !result.ends_with('\n') {
-        result.push('\n');
-    }
-    if !result.is_empty() && !result.ends_with("\n\n") {
-        result.push('\n');
-    }
-    result.push_str(&credential_rule_snippet(
-        table, binding, host, method, path,
-    )?);
-    Ok(result)
-}
-
-/// The snippet a user can paste when the change can't be applied in place.
-fn manual_snippet(change: &ProfileChange) -> Result<String> {
-    Ok(match change {
-        ProfileChange::EgressHost { host } => {
-            format!("egress_hosts = [..., {}]\n", serde_json::to_string(host)?)
-        }
-        ProfileChange::CredentialRule {
-            table,
-            binding,
-            host,
-            method,
-            path,
-        } => credential_rule_snippet(table, binding, host, method, path)?,
-        ProfileChange::McpTool { server, tool } => format!(
-            "[mcp_servers.{}]\nallow_tools = [..., {}]\n",
-            toml_key(server)?,
-            serde_json::to_string(tool)?
-        ),
-    })
-}
-
 /// Re-parses and re-validates the edited profile and checks that it now
-/// allows the denied request, so a bad edit is never written.
-fn check_updated_profile(updated: &str, change: &ProfileChange) -> Result<()> {
+/// reaches `host`, so a bad edit is never written.
+fn check_updated_profile(updated: &str, host: &str) -> Result<()> {
     let profile =
         toml::from_str::<AgentProfile>(updated).context("the edited profile does not parse")?;
     ensure_profile_is_valid_for_run(&profile)?;
-    let allowed = match change {
-        ProfileChange::EgressHost { host } => {
-            host_listed(profile.egress_hosts.as_deref(), host)
-                && !host_listed(profile.deny_hosts.as_deref(), host)
-        }
-        ProfileChange::CredentialRule {
-            binding,
-            host,
-            method,
-            path,
-            ..
-        } => binding_entry(&profile, binding).is_some_and(|(_, secret)| {
-            credential_decision(secret, host, method, path)
-                == SecretAuthorizationDecision::AllowedRule
-        }),
-        ProfileChange::McpTool { server, tool } => {
-            profile.mcp_servers.get(server).is_some_and(|server| {
-                server.allow_tools.contains(tool) && !server.deny_tools.contains(tool)
-            })
-        }
-    };
-    if !allowed {
-        bail!("the edited profile still would not allow the request");
+    if !host_listed(profile.egress_hosts.as_deref(), host)
+        || host_listed(profile.deny_hosts.as_deref(), host)
+    {
+        bail!("the edited profile still would not reach {host}");
     }
     Ok(())
 }
 
-fn find_event(command: &AgentAllowCommand) -> Result<ProxyAuditLogEvent> {
-    if let Some(id) = &command.event_id {
-        let filter = ProxyAuditLogFilter {
-            id: Some(id.clone()),
-            ..Default::default()
-        };
-        let event = read_local_proxy_audit_logs(1, None, &filter)?
-            .pop()
-            .with_context(|| format!("No local audit event has the ID {id}."))?;
-        if event.response_status != Some(403) {
-            bail!("Audit event {id} is `{}`, not a denial.", event.action);
-        }
-        return Ok(event);
+/// The denial `id` names.
+fn find_event(id: &str) -> Result<ProxyAuditLogEvent> {
+    let filter = ProxyAuditLogFilter {
+        id: Some(id.to_owned()),
+        ..Default::default()
+    };
+    let event = read_local_proxy_audit_logs(1, None, &filter)?
+        .pop()
+        .with_context(|| format!("No local audit event has the ID {id}."))?;
+    if event.response_status != Some(403) {
+        bail!("Audit event {id} is `{}`, not a denial.", event.action);
     }
-    read_local_proxy_audit_logs(AUDIT_EVENT_LIMIT, None, &ProxyAuditLogFilter::default())?
-        .into_iter()
-        .rev()
-        .find(|event| event.response_status == Some(403))
-        .context("No denied request in the local audit logs.")
+    Ok(event)
 }
 
-/// The profile file the denied request's session ran with.
-fn session_profile_path(event: &ProxyAuditLogEvent) -> Result<(PathBuf, Option<String>)> {
+/// The most recently started session in the local audit logs.
+fn latest_session_id() -> Result<String> {
     let filter = ProxyAuditLogFilter {
-        session: Some(event.session_id.clone()),
+        action: Some("session_started".to_owned()),
+        ..Default::default()
+    };
+    Ok(read_local_proxy_audit_logs(1, None, &filter)?
+        .pop()
+        .context("No agent run in the local audit logs.")?
+        .session_id)
+}
+
+fn session_events(session_id: &str) -> Result<Vec<ProxyAuditLogEvent>> {
+    let filter = ProxyAuditLogFilter {
+        session: Some(session_id.to_owned()),
+        ..Default::default()
+    };
+    read_local_proxy_audit_logs(AUDIT_EVENT_LIMIT, None, &filter)
+}
+
+/// The profile file the session ran with.
+fn session_profile_path(session_id: &str) -> Result<(PathBuf, Option<String>)> {
+    let filter = ProxyAuditLogFilter {
+        session: Some(session_id.to_owned()),
         action: Some("session_started".to_owned()),
         ..Default::default()
     };
@@ -472,111 +219,13 @@ fn file_sha256(path: &Path) -> Result<String> {
     Ok(hex::encode(Sha256::digest(fs::read(path)?)))
 }
 
-#[derive(Serialize)]
-struct AllowReport {
-    event_id: String,
-    profile_file: String,
-    change: ProfileChange,
-    applied: bool,
-}
-
-pub fn handle_agent_allow_command(
-    command: AgentAllowCommand,
-    silent: bool,
-    json: bool,
-) -> Result<()> {
-    let event = find_event(&command)?;
-    let (path, recorded_sha256) = match &command.policy_file {
-        Some(path) => (path.clone(), None),
-        None => session_profile_path(&event)?,
-    };
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Could not read agent profile '{}'.", path.display()))?;
-    if recorded_sha256.is_some_and(|recorded| file_sha256(&path).ok() != Some(recorded)) {
-        eprintln!(
-            "Warning: {} changed after the run; checking the denial against its current contents.",
-            path.display()
-        );
-    }
-    let profile = toml::from_str::<AgentProfile>(&content)
-        .with_context(|| format!("Could not parse agent profile '{}'.", path.display()))?;
-    let change = denial_change(&event, &profile)
-        .map_err(|why| anyhow::anyhow!("Can't allow {} automatically: {why}.", event.event_id))?;
-    let updated = apply_change(&content, &change)
-        .and_then(|updated| check_updated_profile(&updated, &change).map(|()| updated));
-    let updated = match updated {
-        Ok(updated) => updated,
-        Err(error) => bail!(
-            "Could not change {} safely ({error:#}). Add this by hand:\n\n{}",
-            path.display(),
-            manual_snippet(&change)?
-        ),
-    };
-
-    let report = |applied| AllowReport {
-        event_id: event.event_id.clone(),
-        profile_file: path.display().to_string(),
-        change: change.clone(),
-        applied,
-    };
-    if json && !command.yes {
-        println!("{}", get_formatted_json_string(&report(false), true)?);
-        return Ok(());
-    }
-    if !json {
-        println!("Profile: {}", path.display());
-        println!("Change: {}", change.describe());
-        println!();
-        for line in added_lines(&content, &updated) {
-            println!("+ {line}");
-        }
-        println!();
-    }
-    if !command.yes {
-        if silent {
-            bail!("Pass --yes to change the profile without a prompt.");
-        }
-        match crate::utils::interaction::confirm_opt("Save this change to the profile?") {
-            Some(true) => {}
-            Some(false) | None => bail!("The profile was not changed."),
-        }
-    }
-    fs::write(&path, &updated)
-        .with_context(|| format!("Could not write agent profile '{}'.", path.display()))?;
-    if json {
-        println!("{}", get_formatted_json_string(&report(true), true)?);
-    } else {
-        println!(
-            "Updated {}. The change applies from the next run.",
-            path.display()
-        );
-    }
-    Ok(())
-}
-
-/// Lines in `updated` that `original` doesn't have, in order: the edits
-/// only ever insert or extend lines, so this is the whole diff.
-fn added_lines<'a>(original: &str, updated: &'a str) -> Vec<&'a str> {
-    let mut remaining = original.lines().collect::<Vec<_>>();
-    remaining.reverse();
-    let mut added = Vec::new();
-    for line in updated.lines() {
-        if remaining.last() == Some(&line) {
-            remaining.pop();
-        } else {
-            added.push(line);
-        }
-    }
-    added
-}
-
-/// One line of the end-of-run summary: denials of the same request shape.
-#[derive(Debug, PartialEq, Eq)]
+/// Denials of the same request shape within a session.
+#[derive(Debug)]
 struct DenialGroup {
     label: String,
     count: usize,
-    /// Newest event of the group, when `agent allow` may fix it.
-    allow_event_id: Option<String>,
+    /// The newest denial of the group.
+    event: ProxyAuditLogEvent,
 }
 
 fn denial_label(event: &ProxyAuditLogEvent) -> String {
@@ -605,81 +254,324 @@ fn denial_label(event: &ProxyAuditLogEvent) -> String {
     }
 }
 
+/// The session's denials grouped by request shape, most frequent first.
 fn group_denials(events: &[ProxyAuditLogEvent]) -> Vec<DenialGroup> {
-    // Keyed by label; the value keeps first-seen order for stable output.
-    let mut groups = BTreeMap::<String, (usize, usize, Option<String>)>::new();
+    // Keyed by label; the order keeps first-seen order among equal counts.
+    let mut groups = BTreeMap::<String, (usize, DenialGroup)>::new();
     for (order, event) in events
         .iter()
         .filter(|event| event.response_status == Some(403))
         .enumerate()
     {
-        let group = groups
-            .entry(denial_label(event))
-            .or_insert((order, 0, None));
-        group.1 += 1;
-        if may_be_fixable(event) {
-            group.2 = Some(event.event_id.clone());
-        }
+        let label = denial_label(event);
+        let entry = groups.entry(label.clone()).or_insert_with(|| {
+            (
+                order,
+                DenialGroup {
+                    label,
+                    count: 0,
+                    event: event.clone(),
+                },
+            )
+        });
+        entry.1.count += 1;
+        entry.1.event = event.clone();
     }
-    let mut groups = groups.into_iter().collect::<Vec<_>>();
-    groups.sort_by(|(_, left), (_, right)| right.1.cmp(&left.1).then(left.0.cmp(&right.0)));
-    groups
-        .into_iter()
-        .map(|(label, (_, count, allow_event_id))| DenialGroup {
-            label,
-            count,
-            allow_event_id,
-        })
-        .collect()
+    let mut groups = groups.into_values().collect::<Vec<_>>();
+    groups.sort_by(|(left_order, left), (right_order, right)| {
+        right
+            .count
+            .cmp(&left.count)
+            .then(left_order.cmp(right_order))
+    });
+    groups.into_iter().map(|(_, group)| group).collect()
 }
 
-fn format_denial_summary(groups: &[DenialGroup], session_id: &str) -> Option<String> {
-    let total = groups.iter().map(|group| group.count).sum::<usize>();
-    if total == 0 {
-        return None;
+/// Adds every host in order, checking each, so a bad edit is never written.
+fn add_egress_hosts(content: &str, hosts: &[&str], path: &Path) -> Result<String> {
+    let mut updated = content.to_owned();
+    for host in hosts {
+        let added = add_egress_host(&updated, host)
+            .and_then(|next| check_updated_profile(&next, host).map(|()| next));
+        match added {
+            Ok(next) => updated = next,
+            Err(error) => bail!(
+                "Could not change {} safely ({error:#}). Add {} to egress_hosts by hand.",
+                path.display(),
+                serde_json::to_string(host)?
+            ),
+        }
     }
-    let requests = if total == 1 { "request" } else { "requests" };
-    let mut output = format!("Agent Proxy blocked {total} {requests} in this run:\n");
-    let width = groups
+    Ok(updated)
+}
+
+#[derive(Serialize)]
+struct AllowReport {
+    session_id: String,
+    profile_file: String,
+    blocked: Vec<AllowReportEntry>,
+    applied: bool,
+}
+
+#[derive(Serialize)]
+struct AllowReportEntry {
+    event_id: String,
+    label: String,
+    count: usize,
+    /// The host `agent allow` would add to `egress_hosts`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    egress_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    not_fixable: Option<String>,
+    selected: bool,
+}
+
+pub fn handle_agent_allow_command(
+    command: AgentAllowCommand,
+    silent: bool,
+    json: bool,
+) -> Result<()> {
+    // One event, or every denial of a session.
+    let (session_id, groups, single) = match &command.event_id {
+        Some(id) => {
+            let event = find_event(id)?;
+            let group = DenialGroup {
+                label: denial_label(&event),
+                count: 1,
+                event,
+            };
+            (group.event.session_id.clone(), vec![group], true)
+        }
+        None => {
+            let session_id = match &command.session {
+                Some(session_id) => session_id.clone(),
+                None => latest_session_id()?,
+            };
+            let events = session_events(&session_id)?;
+            let groups = group_denials(&events);
+            if groups.is_empty() {
+                if !json {
+                    println!("No requests were blocked in session {session_id}.");
+                } else {
+                    println!("{}", get_formatted_json_string(&Vec::<()>::new(), true)?);
+                }
+                return Ok(());
+            }
+            (session_id, groups, false)
+        }
+    };
+
+    let (path, recorded_sha256) = match &command.policy_file {
+        Some(path) => (path.clone(), None),
+        None => session_profile_path(&session_id)?,
+    };
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("Could not read agent profile '{}'.", path.display()))?;
+    if recorded_sha256.is_some_and(|recorded| file_sha256(&path).ok() != Some(recorded)) {
+        eprintln!(
+            "Warning: {} changed after the run; checking the blocks against its current contents.",
+            path.display()
+        );
+    }
+    let profile = toml::from_str::<AgentProfile>(&content)
+        .with_context(|| format!("Could not parse agent profile '{}'.", path.display()))?;
+    let decided = groups
         .iter()
-        .take(SUMMARY_GROUP_LIMIT)
-        .map(|group| group.label.len())
-        .max()
-        .unwrap_or_default();
-    for group in groups.iter().take(SUMMARY_GROUP_LIMIT) {
-        let count = format!("{}×", group.count);
-        match &group.allow_event_id {
-            Some(id) => output.push_str(&format!(
-                "  {count:>4} {:<width$}  stashbase agent allow {id}\n",
-                group.label
-            )),
-            None => output.push_str(&format!("  {count:>4} {}\n", group.label)),
+        .map(|group| (group, egress_fix(&group.event, &profile)))
+        .collect::<Vec<_>>();
+    if single {
+        if let Err(why) = &decided[0].1 {
+            bail!(
+                "Can't allow {} automatically: {why}.",
+                decided[0].0.event.event_id
+            );
         }
     }
-    if groups.len() > SUMMARY_GROUP_LIMIT {
-        output.push_str(&format!(
-            "  ... and {} more\n",
-            groups.len() - SUMMARY_GROUP_LIMIT
-        ));
+
+    let fixable = decided
+        .iter()
+        .filter_map(|(group, fix)| fix.as_ref().ok().map(|host| (*group, host.as_str())))
+        .collect::<Vec<_>>();
+    let interactive = !silent
+        && !json
+        && std::io::IsTerminal::is_terminal(&std::io::stdin())
+        && std::io::IsTerminal::is_terminal(&std::io::stderr());
+    if !json && !single {
+        // The picker lists the blocked hosts itself; otherwise list them
+        // here with the IDs `agent allow <event-id>` takes.
+        println!(
+            "Blocked in session {session_id} (profile {}):",
+            path.display()
+        );
+        let width = fixable
+            .iter()
+            .map(|(group, _)| group.label.len())
+            .max()
+            .unwrap_or_default();
+        for (group, fix) in &decided {
+            let count = format!("{}×", group.count);
+            match fix {
+                Ok(_) if interactive => {}
+                Ok(_) => println!(
+                    "  {count:>4} {:<width$}  stashbase agent allow {}",
+                    group.label, group.event.event_id
+                ),
+                Err(why) => println!("  {count:>4} {} ({why})", group.label),
+            }
+        }
+        println!();
     }
-    output.push_str(&format!(
-        "Details: stashbase agent logs --session {session_id}\n"
-    ));
-    Some(output)
+    let selected = if single || fixable.is_empty() {
+        (0..fixable.len()).collect::<Vec<_>>()
+    } else if interactive {
+        let labels = fixable
+            .iter()
+            .map(|(group, _)| match group.count {
+                1 => group.label.clone(),
+                count => format!("{} ({count}×)", group.label),
+            })
+            .collect::<Vec<_>>();
+        dialoguer::MultiSelect::with_theme(
+            &crate::handlers::agent::mcp::McpMultiSelectTheme::default(),
+        )
+        .with_prompt("Select hosts to allow")
+        .items(&labels)
+        .interact_opt()?
+        .unwrap_or_default()
+    } else {
+        // Without a terminal nothing is chosen for the user.
+        Vec::new()
+    };
+    let selected_ids = selected
+        .iter()
+        .map(|index| fixable[*index].0.event.event_id.as_str())
+        .collect::<Vec<_>>();
+    let report = |applied: bool| AllowReport {
+        session_id: session_id.clone(),
+        profile_file: path.display().to_string(),
+        blocked: decided
+            .iter()
+            .map(|(group, fix)| AllowReportEntry {
+                event_id: group.event.event_id.clone(),
+                label: group.label.clone(),
+                count: group.count,
+                egress_host: fix.as_ref().ok().cloned(),
+                not_fixable: fix.as_ref().err().cloned(),
+                selected: selected_ids.contains(&group.event.event_id.as_str()),
+            })
+            .collect(),
+        applied,
+    };
+    if fixable.is_empty() {
+        if json {
+            println!("{}", get_formatted_json_string(&report(false), true)?);
+        } else {
+            println!("No blocked hosts to add to egress_hosts.");
+        }
+        return Ok(());
+    }
+    if selected.is_empty() {
+        if json {
+            println!("{}", get_formatted_json_string(&report(false), true)?);
+        } else if interactive {
+            println!("Nothing selected; the profile was not changed.");
+        }
+        return Ok(());
+    }
+
+    let hosts = selected
+        .iter()
+        .map(|index| fixable[*index].1)
+        .collect::<Vec<_>>();
+    let updated = add_egress_hosts(&content, &hosts, &path)?;
+    if json && !command.yes {
+        println!("{}", get_formatted_json_string(&report(false), true)?);
+        return Ok(());
+    }
+    if !json {
+        println!("Profile: {}", path.display());
+        println!("Add to egress_hosts: {}", hosts.join(", "));
+        println!();
+        for line in added_lines(&content, &updated) {
+            println!("+ {line}");
+        }
+        println!();
+    }
+    if !command.yes {
+        if !interactive {
+            bail!("Pass --yes to change the profile without a prompt.");
+        }
+        match crate::utils::interaction::confirm_opt("Save this change to the profile?") {
+            Some(true) => {}
+            Some(false) | None => bail!("The profile was not changed."),
+        }
+    }
+    fs::write(&path, &updated)
+        .with_context(|| format!("Could not write agent profile '{}'.", path.display()))?;
+    if json {
+        println!("{}", get_formatted_json_string(&report(true), true)?);
+    } else {
+        println!(
+            "Updated {}. The change applies from the next run.",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
-/// Prints what the proxy denied during the session, with the `agent allow`
-/// command for each fixable denial. Never fails the run.
-pub fn print_run_denial_summary(session_id: &str) {
-    let filter = ProxyAuditLogFilter {
-        session: Some(session_id.to_owned()),
-        ..Default::default()
-    };
-    let Ok(events) = read_local_proxy_audit_logs(AUDIT_EVENT_LIMIT, None, &filter) else {
-        return;
-    };
-    if let Some(summary) = format_denial_summary(&group_denials(&events), session_id) {
-        eprint!("{summary}");
+/// Lines in `updated` that a line diff against `original` marks as added,
+/// in order. Profiles are small, so a plain LCS table is fine.
+fn added_lines<'a>(original: &str, updated: &'a str) -> Vec<&'a str> {
+    let old = original.lines().collect::<Vec<_>>();
+    let new = updated.lines().collect::<Vec<_>>();
+    // common[i][j]: length of the longest common subsequence of old[i..], new[j..].
+    let mut common = vec![vec![0usize; new.len() + 1]; old.len() + 1];
+    for i in (0..old.len()).rev() {
+        for j in (0..new.len()).rev() {
+            common[i][j] = if old[i] == new[j] {
+                common[i + 1][j + 1] + 1
+            } else {
+                common[i + 1][j].max(common[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    let mut added = Vec::new();
+    while j < new.len() {
+        if i < old.len() && old[i] == new[j] {
+            i += 1;
+            j += 1;
+        } else if i < old.len() && common[i + 1][j] >= common[i][j + 1] {
+            i += 1;
+        } else {
+            added.push(new[j]);
+            j += 1;
+        }
+    }
+    added
+}
+
+fn run_denial_notice(events: &[ProxyAuditLogEvent], session_id: &str) -> Option<String> {
+    let blocked = events
+        .iter()
+        .filter(|event| event.response_status == Some(403))
+        .count();
+    let requests = if blocked == 1 { "request" } else { "requests" };
+    (blocked > 0).then(|| {
+        format!(
+            "Agent Proxy blocked {blocked} {requests} in this run. Review: stashbase agent allow \
+             --session {session_id}\n"
+        )
+    })
+}
+
+/// One line after a run that had blocks; `agent allow` shows the details.
+/// Never fails the run.
+pub fn print_run_denial_notice(session_id: &str) {
+    if let Ok(events) = session_events(session_id) {
+        if let Some(notice) = run_denial_notice(&events, session_id) {
+            eprint!("{notice}");
+        }
     }
 }
 
@@ -702,6 +594,14 @@ mod tests {
             "duration_ms": 1,
         }))
         .unwrap()
+    }
+
+    fn host_event(id: &str, host: &str) -> ProxyAuditLogEvent {
+        ProxyAuditLogEvent {
+            event_id: id.to_owned(),
+            destination_host: Some(host.to_owned()),
+            ..event("host_denied")
+        }
     }
 
     fn credential_event(path: &str) -> ProxyAuditLogEvent {
@@ -727,38 +627,20 @@ effect = "allow"
 hosts = ["api.github.com"]
 methods = ["GET"]
 paths = ["/repos/o/r/*"]
-
-[[secrets.GITHUB_TOKEN.rules]]
-effect = "deny"
-hosts = ["api.github.com"]
-methods = ["DELETE"]
-paths = ["*"]
-
-[mcp_servers.linear]
-url = "https://mcp.linear.app/mcp"
-allow_tools = ["list_issues"]
 "#;
 
     fn profile() -> AgentProfile {
         toml::from_str(PROFILE).unwrap()
     }
 
-    fn apply(event: &ProxyAuditLogEvent) -> String {
-        let change = denial_change(event, &profile()).unwrap();
-        let updated = apply_change(PROFILE, &change).unwrap();
-        check_updated_profile(&updated, &change).unwrap();
-        updated
-    }
-
     #[test]
-    fn a_denied_host_is_added_to_a_single_line_egress_list_keeping_its_comment() {
-        let updated = apply(&ProxyAuditLogEvent {
-            destination_host: Some("pypi.org".to_owned()),
-            ..event("host_denied")
-        });
+    fn a_blocked_host_is_added_to_a_single_line_egress_list_keeping_its_comment() {
+        let host = egress_fix(&host_event("evt_1", "pypi.org"), &profile()).unwrap();
+        let updated = add_egress_hosts(PROFILE, &[&host], Path::new("p.toml")).unwrap();
         assert!(updated.contains(
             "egress_hosts = [\"registry.npmjs.org\", \"pypi.org\"] # package installs\n"
         ));
+        assert_eq!(added_lines(PROFILE, &updated).len(), 1);
     }
 
     #[test]
@@ -780,146 +662,101 @@ allow_tools = ["list_issues"]
             "# profile\negress_hosts = [\"pypi.org\"]\n\n[secrets.X]\n"
         );
         // A key inside a table is not the top-level list.
-        let nested = "[sandbox]\negress_hosts = []\n";
-        let updated = add_egress_host(nested, "pypi.org").unwrap();
+        let updated = add_egress_host("[sandbox]\negress_hosts = []\n", "pypi.org").unwrap();
         assert!(updated.starts_with("egress_hosts = [\"pypi.org\"]\n"));
     }
 
     #[test]
-    fn a_credential_denial_appends_the_narrowest_allow_rule() {
-        let updated = apply(&credential_event("/repos/o/r/issues"));
-        assert!(updated.starts_with(PROFILE));
-        assert!(updated.ends_with(
-            "\n[[secrets.GITHUB_TOKEN.rules]]\neffect = \"allow\"\nhosts = [\"api.github.com\"]\n\
-             methods = [\"POST\"]\npaths = [\"/repos/o/r/issues\"]\n"
+    fn several_hosts_are_added_in_order() {
+        let updated = add_egress_hosts(
+            PROFILE,
+            &["pypi.org", "files.pythonhosted.org"],
+            Path::new("p"),
+        )
+        .unwrap();
+        assert!(
+            updated.contains("[\"registry.npmjs.org\", \"pypi.org\", \"files.pythonhosted.org\"]")
+        );
+    }
+
+    #[test]
+    fn only_plain_host_blocks_become_egress_entries() {
+        let refused = |event: ProxyAuditLogEvent| egress_fix(&event, &profile()).unwrap_err();
+
+        assert!(refused(host_event("evt_1", "evil.example.com")).contains("deny_hosts"));
+        assert!(refused(host_event("evt_1", "registry.npmjs.org")).contains("already"));
+        assert!(refused(ProxyAuditLogEvent {
+            binding_name: Some("OLD_TOKEN".to_owned()),
+            ..host_event("evt_1", "api.example.com")
+        })
+        .contains("OLD_TOKEN's `hosts` list"));
+        assert!(refused(credential_event("/user")).contains(
+            "stashbase agent explain --profile dev --host api.github.com --method POST --path /user"
         ));
-    }
-
-    #[test]
-    fn an_mcp_tool_denial_extends_allow_tools() {
-        let updated = apply(&ProxyAuditLogEvent {
-            destination_host: Some("mcp.linear.app".to_owned()),
-            path: Some("/mcp".to_owned()),
-            mcp_tool: Some("save_issue".to_owned()),
-            reason: Some("tool_not_allowed".to_owned()),
-            ..event("mcp_tool_denied")
-        });
-        assert!(updated.contains("allow_tools = [\"list_issues\", \"save_issue\"]"));
-    }
-
-    #[test]
-    fn denials_the_profile_decided_on_purpose_are_not_changed() {
-        let refused = |event: ProxyAuditLogEvent| denial_change(&event, &profile()).unwrap_err();
-
-        assert!(refused(ProxyAuditLogEvent {
-            method: Some("DELETE".to_owned()),
-            ..credential_event("/repos/o/r")
-        })
-        .contains("deny rule"));
-        assert!(refused(ProxyAuditLogEvent {
-            reason: Some("allow_condition_failed:body.state".to_owned()),
-            ..credential_event("/repos/o/r/issues")
-        })
-        .contains("conditions"));
-        assert!(refused(ProxyAuditLogEvent {
-            destination_host: Some("evil.example.com".to_owned()),
-            ..event("host_denied")
-        })
-        .contains("deny_hosts"));
-        assert!(refused(ProxyAuditLogEvent {
-            destination_host: Some("registry.npmjs.org".to_owned()),
-            ..event("host_denied")
-        })
-        .contains("already"));
-        assert!(refused(ProxyAuditLogEvent {
-            destination_host: Some("mcp.linear.app".to_owned()),
-            path: Some("/mcp".to_owned()),
-            mcp_tool: Some("save_issue".to_owned()),
-            reason: Some("tool_denied".to_owned()),
-            ..event("mcp_tool_denied")
-        })
-        .contains("edit them by hand"));
+        assert!(refused(event("mcp_tool_denied")).contains("allow_tools"));
         assert!(refused(event("filesystem_denied")).contains("[filesystem]"));
     }
 
     #[test]
-    fn an_edit_that_still_would_not_allow_the_request_is_rejected() {
-        let change = ProfileChange::CredentialRule {
-            table: "secrets",
-            binding: "GITHUB_TOKEN".to_owned(),
-            host: "api.github.com".to_owned(),
-            method: "DELETE".to_owned(),
-            path: "/repos/o/r".to_owned(),
-        };
-        let updated = apply_change(PROFILE, &change).unwrap();
-        assert!(check_updated_profile(&updated, &change).is_err());
-    }
-
-    #[test]
-    fn binding_names_that_are_not_bare_keys_are_quoted() {
-        assert_eq!(toml_key("GITHUB_TOKEN").unwrap(), "GITHUB_TOKEN");
-        assert_eq!(toml_key("my.token").unwrap(), "\"my.token\"");
+    fn an_edit_that_would_still_not_reach_the_host_is_rejected() {
+        let updated = add_egress_host(PROFILE, "evil.example.com").unwrap();
+        assert!(check_updated_profile(&updated, "evil.example.com").is_err());
+        let error =
+            add_egress_hosts(PROFILE, &["evil.example.com"], Path::new("p.toml")).unwrap_err();
+        assert!(error.to_string().contains("by hand"));
     }
 
     #[test]
     fn added_lines_show_only_the_insertions() {
         assert_eq!(added_lines("a\nb\n", "a\nx\nb\ny\n"), vec!["x", "y"]);
+        // A line changed in place is one added line, not everything after it.
+        assert_eq!(added_lines("a\nb\nc\n", "a\nB\nc\n"), vec!["B"]);
     }
 
     #[test]
-    fn the_run_summary_groups_denials_and_offers_allow_only_where_it_can_help() {
-        let host = |id: &str, host: &str| ProxyAuditLogEvent {
-            event_id: id.to_owned(),
-            destination_host: Some(host.to_owned()),
-            ..event("host_denied")
-        };
+    fn denials_group_by_request_shape_keeping_the_newest_event() {
         let events = vec![
-            host("evt_a", "pypi.org"),
-            ProxyAuditLogEvent {
-                response_status: Some(200),
-                ..host("evt_ok", "pypi.org")
-            },
-            host("evt_b", "pypi.org"),
             ProxyAuditLogEvent {
                 event_id: "evt_c".to_owned(),
-                reason: Some("deny_condition_matched:body.state".to_owned()),
                 ..credential_event("/repos/o/r/issues")
             },
+            host_event("evt_a", "pypi.org"),
+            ProxyAuditLogEvent {
+                response_status: Some(200),
+                ..host_event("evt_ok", "pypi.org")
+            },
+            host_event("evt_b", "pypi.org"),
         ];
-        let groups = group_denials(&events);
+        let groups = group_denials(&events)
+            .into_iter()
+            .map(|group| (group.label, group.count, group.event.event_id))
+            .collect::<Vec<_>>();
         assert_eq!(
             groups,
             vec![
-                DenialGroup {
-                    label: "host pypi.org".to_owned(),
-                    count: 2,
-                    allow_event_id: Some("evt_b".to_owned()),
-                },
-                DenialGroup {
-                    label: "GITHUB_TOKEN POST api.github.com/repos/o/r/issues".to_owned(),
-                    count: 1,
-                    allow_event_id: None,
-                },
+                ("host pypi.org".to_owned(), 2, "evt_b".to_owned()),
+                (
+                    "GITHUB_TOKEN POST api.github.com/repos/o/r/issues".to_owned(),
+                    1,
+                    "evt_c".to_owned()
+                ),
             ]
         );
-        let summary = format_denial_summary(&groups, "ses_1").unwrap();
-        assert!(summary.starts_with("Agent Proxy blocked 3 requests in this run:\n"));
-        assert!(summary.contains("stashbase agent allow evt_b\n"));
-        assert!(summary.ends_with("Details: stashbase agent logs --session ses_1\n"));
-        assert_eq!(format_denial_summary(&[], "ses_1"), None);
     }
 
     #[test]
-    fn the_run_summary_caps_its_groups() {
-        let groups = (0..SUMMARY_GROUP_LIMIT + 2)
-            .map(|index| DenialGroup {
-                label: format!("host h{index}"),
-                count: 1,
-                allow_event_id: None,
-            })
-            .collect::<Vec<_>>();
-        let summary = format_denial_summary(&groups, "ses_1").unwrap();
-        assert!(summary.contains("  ... and 2 more\n"));
-        assert!(!summary.contains("h11"));
+    fn a_run_with_blocks_ends_with_one_line_pointing_to_agent_allow() {
+        assert_eq!(
+            run_denial_notice(&[event("host_denied"), event("host_denied")], "ses_1").as_deref(),
+            Some(
+                "Agent Proxy blocked 2 requests in this run. Review: stashbase agent allow \
+                 --session ses_1\n"
+            )
+        );
+        let allowed = ProxyAuditLogEvent {
+            response_status: Some(200),
+            ..event("forwarded")
+        };
+        assert_eq!(run_denial_notice(&[allowed], "ses_1"), None);
     }
 }

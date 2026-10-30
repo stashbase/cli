@@ -43,7 +43,7 @@ pub enum AgentSubcommand {
     McpCheck(AgentMcpCheckCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
-    /// Allow a request the Agent Proxy denied by adding the narrowest matching entry to the profile the run used
+    /// Review what the Agent Proxy blocked in a run and allow chosen requests in the profile it used
     Allow(AgentAllowCommand),
     /// Manage Docker sandbox backend resources
     Docker(AgentDockerCommand),
@@ -109,13 +109,12 @@ pub struct AgentWorktreesMergeCommand {
 
 #[derive(Debug, Args)]
 pub struct AgentAllowCommand {
-    /// Audit event ID of the denial, as printed when the run ends or by `agent logs`
-    #[arg(required_unless_present = "last", conflicts_with = "last")]
+    /// Audit event ID of one denial, as `agent logs` shows it; omit to choose from a session's blocks
     pub event_id: Option<String>,
 
-    /// Use the most recent denial in the local audit logs
-    #[arg(long)]
-    pub last: bool,
+    /// Session whose blocks to choose from; defaults to the most recent run
+    #[arg(long, conflicts_with = "event_id")]
+    pub session: Option<String>,
 
     /// Profile file to change instead of the one the run used
     #[arg(long)]
