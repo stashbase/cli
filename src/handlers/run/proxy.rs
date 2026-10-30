@@ -3687,11 +3687,12 @@ impl ProxyState {
         host: Option<&str>,
     ) -> Response<ProxyBody> {
         let session_id = self.audit_log.as_ref().map(ProxyAuditLog::session_id);
+        let hint = denial_hint(&self.policy, host);
         Response::builder()
             .status(StatusCode::FORBIDDEN)
             .header(CONTENT_TYPE, "application/json")
             .body(full_body(Bytes::from(
-                policy_denial_body(code, message, id, session_id, host).to_string(),
+                policy_denial_body(code, message, id, hint, session_id, host).to_string(),
             )))
             .unwrap()
     }
@@ -4274,6 +4275,20 @@ impl CredentialDenial {
 /// allow`: an agent that can write its own profile shouldn't be told how.
 const POLICY_DENIAL_HINT: &str = "Blocked by the user's agent profile, not a network error. Ask the user to allow it; retrying will not help.";
 
+/// The `hint` when the host is in `deny_hosts`, which the user chose to block.
+const DENY_HOSTS_HINT: &str =
+    "The user's agent profile explicitly blocks this host; don't try to reach it another way.";
+
+/// A `deny_hosts` entry is a deliberate block, so its hint doesn't suggest
+/// asking for it to be allowed.
+fn denial_hint(policy: &ProxyPolicy, host: Option<&str>) -> &'static str {
+    if host.is_some_and(|host| policy_denies_host(policy, host)) {
+        DENY_HOSTS_HINT
+    } else {
+        POLICY_DENIAL_HINT
+    }
+}
+
 fn host_denied_message(host: Option<&str>) -> String {
     match host {
         Some(host) => format!("Agent Proxy policy denied destination {host}"),
@@ -4487,6 +4502,7 @@ fn policy_denial_body(
     code: &str,
     message: &str,
     id: &str,
+    hint: &str,
     session_id: Option<&str>,
     host: Option<&str>,
 ) -> serde_json::Value {
@@ -4502,7 +4518,7 @@ fn policy_denial_body(
             "code": code,
             "message": message,
             "id": id,
-            "hint": POLICY_DENIAL_HINT,
+            "hint": hint,
             "details": details,
         }
     })
@@ -5795,6 +5811,7 @@ mod tests {
             "proxy.host_not_allowed",
             &host_denied_message(Some("pypi.org")),
             "evt_1",
+            POLICY_DENIAL_HINT,
             Some("ags_1"),
             Some("pypi.org"),
         );
@@ -5816,6 +5833,15 @@ mod tests {
         )
         .is_policy());
         assert!(!McpDenial::new("MCP request body is not valid JSON", "invalid_json").is_policy());
+
+        let mut policy = ProxyPolicy::permissive();
+        policy.denied_hosts = HashSet::from(["evil.example.com".to_owned()]);
+        assert_eq!(
+            denial_hint(&policy, Some("evil.example.com")),
+            DENY_HOSTS_HINT
+        );
+        assert_eq!(denial_hint(&policy, Some("pypi.org")), POLICY_DENIAL_HINT);
+        assert_eq!(denial_hint(&policy, None), POLICY_DENIAL_HINT);
     }
 
     #[tokio::test]
