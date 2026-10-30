@@ -1,5 +1,9 @@
 # Stashbase CLI
 
+<p align="center">
+  <img src="docs/assets/readme-hero.png" alt="Stashbase: access control for coding agents. An agent session sees only a credential placeholder; the audit log shows the token injected for api.github.com and blocked for other hosts." width="100%">
+</p>
+
 Run Claude Code, Codex, Cursor, and other coding agents through a local or remote Agent Proxy with controlled access to secrets, APIs, files, MCP tools, and dependencies—without exposing raw credentials.
 
 Stashbase is an open-source access layer that gives coding agents the access they need while keeping raw credentials out of the agent process. Instead of handing out API keys, agents receive placeholders that the Agent Proxy exchanges only for approved destinations. Audit logs record proxy-mediated requests and policy decisions.
