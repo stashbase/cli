@@ -1899,11 +1899,11 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response_with_id(
-                    StatusCode::FORBIDDEN,
+                return Ok(state.policy_denial_response(
                     "proxy.host_not_allowed",
                     &host_denied_message(Some(host_from_authority(&authority))),
-                    Some(&request_id),
+                    &request_id,
+                    Some(host_from_authority(&authority)),
                 ));
             }
             let connect_remote = state.remote_for(Some(host_from_authority(&authority)));
@@ -2079,11 +2079,11 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response_with_id(
-                StatusCode::FORBIDDEN,
+            return Ok(state.policy_denial_response(
                 "proxy.host_not_allowed",
                 &host_denied_message(host.as_deref()),
-                Some(&request_id),
+                &request_id,
+                host.as_deref(),
             ));
         }
         // Secret-rule hosts pass here even when absent from `egress_hosts`; the
@@ -2102,11 +2102,11 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response_with_id(
-                StatusCode::FORBIDDEN,
+            return Ok(state.policy_denial_response(
                 "proxy.host_not_allowed",
                 &host_denied_message(host.as_deref()),
-                Some(&request_id),
+                &request_id,
+                host.as_deref(),
             ));
         }
         if contains_unknown_placeholder(&request, &state) {
@@ -2148,11 +2148,11 @@ fn proxy_request(
                         Some(started.elapsed()),
                         None,
                     );
-                    return Ok(proxy_error_response_with_id(
-                        StatusCode::FORBIDDEN,
+                    return Ok(state.policy_denial_response(
                         "proxy.credential_not_allowed",
                         &denial.message(),
-                        Some(&request_id),
+                        &request_id,
+                        host.as_deref(),
                     ));
                 }
             };
@@ -2169,11 +2169,11 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response_with_id(
-                StatusCode::FORBIDDEN,
+            return Ok(state.policy_denial_response(
                 "proxy.host_not_allowed",
                 &host_denied_message(host.as_deref()),
-                Some(&request_id),
+                &request_id,
+                host.as_deref(),
             ));
         }
         let remote = state.remote_for(host.as_deref());
@@ -2331,11 +2331,11 @@ fn proxy_request(
                             Some(started.elapsed()),
                             reason.as_deref(),
                         );
-                        return Ok(proxy_error_response_with_id(
-                            StatusCode::FORBIDDEN,
+                        return Ok(state.policy_denial_response(
                             "proxy.credential_not_allowed",
                             &denial.message(),
-                            Some(&request_id),
+                            &request_id,
+                            host.as_deref(),
                         ));
                     }
                 }
@@ -2372,12 +2372,21 @@ fn proxy_request(
                         Some(started.elapsed()),
                         Some(&denial.reason),
                     );
-                    return Ok(proxy_error_response_with_id(
-                        StatusCode::FORBIDDEN,
-                        "proxy.mcp_tool_not_allowed",
-                        &denial.agent_message(),
-                        Some(&request_id),
-                    ));
+                    return Ok(if denial.is_policy() {
+                        state.policy_denial_response(
+                            "proxy.mcp_tool_not_allowed",
+                            &denial.message,
+                            &request_id,
+                            host.as_deref(),
+                        )
+                    } else {
+                        proxy_error_response_with_id(
+                            StatusCode::FORBIDDEN,
+                            "proxy.mcp_tool_not_allowed",
+                            &denial.message,
+                            Some(&request_id),
+                        )
+                    });
                 }
                 mcp_method = serde_json::from_slice::<serde_json::Value>(&bytes)
                     .ok()
@@ -3670,6 +3679,23 @@ impl ProxyState {
                 || policy_allows_egress(&self.policy, host))
     }
 
+    fn policy_denial_response(
+        &self,
+        code: &str,
+        message: &str,
+        id: &str,
+        host: Option<&str>,
+    ) -> Response<ProxyBody> {
+        let session_id = self.audit_log.as_ref().map(ProxyAuditLog::session_id);
+        Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .header(CONTENT_TYPE, "application/json")
+            .body(full_body(Bytes::from(
+                policy_denial_body(code, message, id, session_id, host).to_string(),
+            )))
+            .unwrap()
+    }
+
     fn record_audit(
         &self,
         action: &str,
@@ -3815,17 +3841,16 @@ impl McpDenial {
         }
     }
 
-    /// The 403 message: malformed requests get `message` alone, policy
-    /// decisions also get `POLICY_DENIAL_HINT`.
-    fn agent_message(&self) -> String {
-        match self.reason.as_str() {
+    /// Whether the profile decided this, rather than the request being malformed.
+    fn is_policy(&self) -> bool {
+        !matches!(
+            self.reason.as_str(),
             "invalid_json"
-            | "batch_request"
-            | "duplicate_key"
-            | "missing_tool_name"
-            | "arguments_not_object" => self.message.clone(),
-            _ => format!("{}. {POLICY_DENIAL_HINT}", self.message),
-        }
+                | "batch_request"
+                | "duplicate_key"
+                | "missing_tool_name"
+                | "arguments_not_object"
+        )
     }
 }
 
@@ -4236,25 +4261,23 @@ struct CredentialDenial {
 impl CredentialDenial {
     fn message(&self) -> String {
         match &self.detail {
-            Some(detail) => format!(
-                "The supplied credential is not allowed for this request ({detail}). {POLICY_DENIAL_HINT}"
-            ),
-            None => {
-                format!("The supplied credential is not allowed for this request. {POLICY_DENIAL_HINT}")
+            Some(detail) => {
+                format!("The supplied credential is not allowed for this request ({detail}).")
             }
+            None => "The supplied credential is not allowed for this request.".to_owned(),
         }
     }
 }
 
-/// Appended to 403s the profile decided, so an agent stops retrying or
+/// The `hint` of 403s the profile decided, so an agent stops retrying or
 /// working around the block. It deliberately doesn't name `stashbase agent
 /// allow`: an agent that can write its own profile shouldn't be told how.
 const POLICY_DENIAL_HINT: &str = "Blocked by the user's agent profile, not a network error. Ask the user to allow it; retrying will not help.";
 
 fn host_denied_message(host: Option<&str>) -> String {
     match host {
-        Some(host) => format!("Agent Proxy policy denied destination {host}. {POLICY_DENIAL_HINT}"),
-        None => format!("Agent Proxy policy denied destination. {POLICY_DENIAL_HINT}"),
+        Some(host) => format!("Agent Proxy policy denied destination {host}"),
+        None => "Agent Proxy policy denied destination".to_owned(),
     }
 }
 
@@ -4456,6 +4479,33 @@ fn proxy_error_response_with_id(
         .header(CONTENT_TYPE, "application/json")
         .body(full_body(Bytes::from(body)))
         .unwrap()
+}
+
+/// A 403 the profile decided: the API error envelope plus `hint`, and
+/// `details` naming the session and host so the user can find the block.
+fn policy_denial_body(
+    code: &str,
+    message: &str,
+    id: &str,
+    session_id: Option<&str>,
+    host: Option<&str>,
+) -> serde_json::Value {
+    let mut details = serde_json::Map::new();
+    if let Some(session_id) = session_id {
+        details.insert("session_id".to_owned(), session_id.into());
+    }
+    if let Some(host) = host {
+        details.insert("host".to_owned(), host.into());
+    }
+    serde_json::json!({
+        "error": {
+            "code": code,
+            "message": message,
+            "id": id,
+            "hint": POLICY_DENIAL_HINT,
+            "details": details,
+        }
+    })
 }
 
 fn full_body(body: Bytes) -> ProxyBody {
@@ -5740,33 +5790,32 @@ mod tests {
     }
 
     #[test]
-    fn policy_denials_tell_the_agent_not_to_retry_but_malformed_requests_do_not() {
-        assert_eq!(
-            host_denied_message(Some("pypi.org")),
-            format!("Agent Proxy policy denied destination pypi.org. {POLICY_DENIAL_HINT}")
+    fn policy_denials_carry_a_hint_and_the_session_and_host() {
+        let body = policy_denial_body(
+            "proxy.host_not_allowed",
+            &host_denied_message(Some("pypi.org")),
+            "evt_1",
+            Some("ags_1"),
+            Some("pypi.org"),
         );
-        let denial = CredentialDenial {
-            secret_name: "GITHUB_TOKEN".to_owned(),
-            audit_action: "credential_rule_denied",
-            detail: Some("rule 1: body.send".to_owned()),
-        };
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_value(body).unwrap();
+        assert_eq!(error.error.code, "proxy.host_not_allowed");
         assert_eq!(
-            denial.message(),
-            format!(
-                "The supplied credential is not allowed for this request (rule 1: body.send). \
-                 {POLICY_DENIAL_HINT}"
-            )
+            error.error.message.as_deref(),
+            Some("Agent Proxy policy denied destination pypi.org")
+        );
+        assert_eq!(error.error.hint.as_deref(), Some(POLICY_DENIAL_HINT));
+        assert_eq!(
+            error.error.details,
+            Some(serde_json::json!({"session_id": "ags_1", "host": "pypi.org"}))
         );
         assert!(McpDenial::new(
             "MCP tool is not allowed by the agent profile",
             "tool_denied"
         )
-        .agent_message()
-        .ends_with(POLICY_DENIAL_HINT));
-        assert_eq!(
-            McpDenial::new("MCP request body is not valid JSON", "invalid_json").agent_message(),
-            "MCP request body is not valid JSON"
-        );
+        .is_policy());
+        assert!(!McpDenial::new("MCP request body is not valid JSON", "invalid_json").is_policy());
     }
 
     #[tokio::test]

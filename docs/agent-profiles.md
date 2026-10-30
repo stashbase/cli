@@ -379,7 +379,7 @@ stashbase agent allow <event-id>          # one block, e.g. from agent logs
 
 It reads the run's blocks from the audit log and lets you pick blocked hosts to add to `egress_hosts` in the profile the run used. It shows the change and asks first (`--yes` skips the prompt); the change applies from the next run. Hosts in `deny_hosts` are left alone. Other blocks (credential rules, MCP tools, filesystem) are listed with what decided them, to edit by hand; `stashbase agent explain` shows which rule applies.
 
-The agent itself gets a 403 telling it the block is profile policy and to ask you, so it doesn't keep retrying.
+The agent itself gets a 403 whose `hint` says the block is profile policy and to ask you, so it doesn't keep retrying. Its `id` and `details.session_id` name the block and the run.
 
 List and revoke active sessions:
 
