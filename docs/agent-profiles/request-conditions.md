@@ -183,6 +183,8 @@ The supplied credential is not allowed for this request (rule 1: unlisted body.b
 MCP tool arguments are not allowed by the agent profile (arguments.team)
 ```
 
+Each message then ends with a sentence telling the agent that the block is the profile's policy and that it should ask you rather than retry.
+
 When several allow rules fail, the message names the first one. The audit log records a reason code:
 
 | Reason | Meaning |
