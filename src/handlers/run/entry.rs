@@ -528,6 +528,7 @@ pub async fn handle_remote_agent_run(
         &mut denied_write_paths,
     )?;
     let command_audit_log = audit_log.clone();
+    let summary_session_id = audit_log.as_ref().map(|log| log.session_id().to_owned());
     let mut setup_spinner: Option<Spinner> = None;
     let run_worktree;
     let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
@@ -715,6 +716,9 @@ pub async fn handle_remote_agent_run(
     run_worktree.finish();
     if !silent {
         eprintln!("Remote agent proxy relay stopped");
+        if let Some(session_id) = &summary_session_id {
+            crate::handlers::agent::allow::print_run_denial_notice(session_id);
+        }
     }
     let status = result?;
     if !status.success() {
@@ -1832,6 +1836,7 @@ async fn handle_run(
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
+        let summary_session_id = audit_log.as_ref().map(|log| log.session_id().to_owned());
         let mut setup_spinner: Option<Spinner> = None;
         let run_worktree;
         let (docker_network, agent_image) = if backend
@@ -2024,6 +2029,9 @@ async fn handle_run(
         run_worktree.finish();
         if !silent {
             eprintln!("Agent proxy stopped");
+            if let Some(session_id) = &summary_session_id {
+                crate::handlers::agent::allow::print_run_denial_notice(session_id);
+            }
         }
         result
     } else if backend != crate::models::agent::SandboxBackend::Native {

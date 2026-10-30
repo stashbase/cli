@@ -68,6 +68,7 @@ impl TrackedCommand {
                 | AgentSubcommand::Sessions { .. }
                 | AgentSubcommand::Hooks(_)
                 | AgentSubcommand::Logs(_)
+                | AgentSubcommand::Allow(_)
                 | AgentSubcommand::Worktrees { .. } => None,
                 // Only `docker build` (adopting the Docker backend) is tracked;
                 // status, cleanup, doctor and shell are noise.

@@ -723,6 +723,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         Err(error) => Err(error),
                     }
                 }
+                AgentSubcommand::Allow(agent_allow) => {
+                    crate::handlers::agent::allow::handle_agent_allow_command(
+                        agent_allow,
+                        silent,
+                        raw_output,
+                    )
+                    .into_exit()
+                }
                 AgentSubcommand::Explain(agent_explain) => {
                     handle_agent_explain_command(agent_explain, silent, raw_output).into_exit()
                 }

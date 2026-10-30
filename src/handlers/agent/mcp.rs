@@ -750,7 +750,7 @@ impl Paint {
 }
 
 #[derive(Default)]
-struct McpMultiSelectTheme {
+pub(crate) struct McpMultiSelectTheme {
     inner: ColorfulTheme,
 }
 
