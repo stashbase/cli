@@ -1888,7 +1888,10 @@ fn proxy_request(
                     "proxy denied destination: {}",
                     host_from_authority(&authority)
                 );
-                state.record_audit(
+                // The ID lets the user find this block in the audit log.
+                let request_id = new_local_request_id();
+                state.record_audit_with_request(
+                    &request_id,
                     "host_denied",
                     Some(host_from_authority(&authority)),
                     Some(&Method::CONNECT),
@@ -1896,10 +1899,11 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response(
+                return Ok(proxy_error_response_with_id(
                     StatusCode::FORBIDDEN,
                     "proxy.host_not_allowed",
                     &host_denied_message(Some(host_from_authority(&authority))),
+                    Some(&request_id),
                 ));
             }
             let connect_remote = state.remote_for(Some(host_from_authority(&authority)));
@@ -4245,7 +4249,7 @@ impl CredentialDenial {
 /// Appended to 403s the profile decided, so an agent stops retrying or
 /// working around the block. It deliberately doesn't name `stashbase agent
 /// allow`: an agent that can write its own profile shouldn't be told how.
-const POLICY_DENIAL_HINT: &str = "This is a policy decision of the user's agent profile, not a network error; retrying will not help. Ask the user to allow it if it is needed.";
+const POLICY_DENIAL_HINT: &str = "Blocked by the user's agent profile, not a network error. Ask the user to allow it; retrying will not help.";
 
 fn host_denied_message(host: Option<&str>) -> String {
     match host {
