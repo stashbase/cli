@@ -273,7 +273,7 @@ A refused request returns 403 naming the rule and field, for example `The suppli
 
 ## MCP Tool Restrictions
 
-HTTP-based MCP servers can be configured with tool-level access control:
+MCP servers, over HTTP or stdio, can be configured with tool-level access control. An HTTP server:
 
 ```toml
 [secrets.LINEAR_API_KEY]
@@ -292,6 +292,46 @@ allow_tools = ["list_issues", "get_issue"]
 ```
 
 The HTTP rule controls credential injection at the endpoint. The MCP rule controls which tools the agent may call. Omit `allow_tools` or leave it empty to deny all tools by default. Use `allow_tools = ["*"]` to allow all tools (a matching `deny_tools` still takes precedence).
+
+### stdio servers
+
+A stdio server is declared with `command` instead of `url`. `stashbase agent run` starts it, not the agent, so the agent can't talk to it without going through the profile's rules:
+
+```toml
+[secrets.GITHUB_TOKEN]
+env = "GH_TOKEN"
+
+[[secrets.GITHUB_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET", "POST"]
+paths = ["/repos/acme/*"]
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = { binding = "GITHUB_TOKEN" } }
+allow_tools = ["get_issue", "list_issues", "create_issue"]
+```
+
+Point your agent at `stashbase agent mcp connect <server>` in place of the server's own command, once:
+
+```bash
+claude mcp add github -- stashbase agent mcp connect github
+codex mcp add github -- stashbase agent mcp connect github
+```
+
+Any agent that starts stdio MCP servers from a command works the same way, and the same registration works with every sandbox backend and with `--remote`. Outside `stashbase agent run` the command exits with an error.
+
+Each time the agent connects, the run starts a fresh server where the agent can't reach its input and output: a separate process under the agent's own sandbox, or with `[sandbox] backend = "docker"`, a separate container from the agent's image, with the same mounts and the same firewalled network. Install the server's runtime (`npx`, `uvx`) in the image the agent uses. The Docker sandbox needs no Stashbase CLI in the image: the run mounts a small `stashbase` stand-in that only connects to the run (it needs `bash`). Either way the server's network goes only through the Agent Proxy. The proxy checks every message against `allow_tools`, `deny_tools` and `tool_rules`, exactly as for an HTTP server. A refused call never reaches the server; the agent gets a JSON-RPC error with the same message an HTTP server's 403 carries, and `tools/list` leaves out the tools the agent can't call. The server stops when the agent disconnects.
+
+The server's environment is the agent's, plus `env`. On the native backend that includes your shell's variables, just as for the agent (see [Inherited Shell Variables](#inherited-shell-variables)); a variable blanked in `[config_env]` is blanked for the server too. A plain value is set as is; `{ binding = "NAME" }` sets the `[secrets]` binding's placeholder, never its value. The server's own HTTP calls go through the proxy like the agent's, so the binding's HTTP rules decide where the real credential is injected: in the example, GitHub calls outside `acme` carry only the placeholder. Credentials the server would use outside HTTP (a database URL, say) can't be given to it this way. `cwd` sets the server's working directory, relative to the run's.
+
+The server's stderr is written to `mcp-logs/<session>/<server>.log` next to the audit log. Its first start may include a download (`npx -y`), which can exceed an agent's MCP startup timeout; raise it if so (Codex `startup_timeout_sec`, Claude Code `MCP_TIMEOUT`).
+
+With `--remote`, servers run on this machine and their HTTP calls go through the remote Agent Proxy like the agent's own.
+
+`stashbase agent mcp tools`, `configure` and `verify` start the server on this machine, in the current directory, to list its tools, with the profile's egress and no secrets loaded.
 
 ### Argument conditions
 
@@ -339,7 +379,7 @@ A listed field allows everything under it (`"meta"` allows `meta.anything`). A f
 
 Prefer allow rules with conditions. A deny with conditions is best-effort, because an agent can often reach the same result with other arguments, and `stashbase agent validate` warns about it. Conditions check single calls; they don't limit how many calls the agent makes.
 
-A refused call returns 403 with the field that decided it, for example `MCP tool arguments are not allowed by the agent profile (arguments.team)`. The audit log records the same as `reason=allow_condition_failed:arguments.team`, never the argument values. `stashbase agent mcp check` shows whether a tool is allowed only under conditions. The remote proxy (`--remote`) enforces the same conditions.
+A refused call returns 403 (a JSON-RPC error for a stdio server) with the field that decided it, for example `MCP tool arguments are not allowed by the agent profile (arguments.team)`. The audit log records the same as `reason=allow_condition_failed:arguments.team`, never the argument values. `stashbase agent mcp check` shows whether a tool is allowed only under conditions. The remote proxy (`--remote`) enforces the same conditions.
 
 Argument names come from the MCP server, and a misspelled field never matches, so its allow rule denies every call. `stashbase agent mcp tools --profile <name> --server <server> --tool <tool>` lists the tool's arguments (dotted paths, types, required, allowed values) and the profile's rules for it. Without `--tool`, the command warns about rule fields a tool doesn't declare and about tools the server doesn't offer. See [examples/linear-tool-rules.toml](./agent-profiles/examples/linear-tool-rules.toml).
 

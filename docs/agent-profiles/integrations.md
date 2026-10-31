@@ -126,6 +126,43 @@ Update allowed tools interactively:
 stashbase agent mcp configure --profile linear-mcp --server linear
 ```
 
+## stdio MCP Server
+
+stdio MCP servers (most servers started with `npx` or `uvx`) are declared with `command`. `stashbase agent run` starts them and applies the same tool rules:
+
+```toml
+# .stashbase/agents/claude.toml
+egress_hosts = ["api.anthropic.com", "platform.claude.com", "registry.npmjs.org"]
+
+[secrets]
+project = "my-project"
+environment = "development"
+
+[secrets.GITHUB_TOKEN]
+env = "GH_TOKEN"
+
+[[secrets.GITHUB_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET", "POST"]
+paths = ["/repos/acme/*"]
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = { binding = "GITHUB_TOKEN" } }
+allow_tools = ["get_issue", "list_issues", "create_issue"]
+```
+
+`registry.npmjs.org` lets `npx` download the server. Register the server with your agent once, then run as usual:
+
+```bash
+claude mcp add github -- stashbase agent mcp connect github
+stashbase agent run --profile claude -- claude
+```
+
+For Codex, `codex mcp add github -- stashbase agent mcp connect github`. See [stdio servers](../agent-profiles.md#stdio-servers).
+
 ## Generic HTTP API
 
 For any HTTP API that uses a Bearer token:

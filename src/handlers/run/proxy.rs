@@ -862,6 +862,9 @@ pub struct ProxyPolicy {
     /// environment underneath everything the sandbox sets. Configuration the
     /// agent sees, not what it may do — so not part of the fingerprint.
     pub config_env: BTreeMap<String, String>,
+    /// `[mcp_servers]` entries with a `command`, which the run starts for
+    /// the agent (see `mcp_stdio`). Their tool rules are in `mcp_rules`.
+    pub stdio_mcp_servers: BTreeMap<String, super::mcp_stdio::StdioMcpServerConfig>,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -1008,6 +1011,7 @@ impl ProxyPolicy {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         }
     }
 
@@ -1145,6 +1149,28 @@ impl ProxyPolicy {
             .collect::<Vec<_>>();
         mcp_rules.sort();
         lines.push(format!("mcp_rules={}", mcp_rules.join("|")));
+        // What a stdio server runs is part of what the agent may do. Absent
+        // for profiles without one, so their fingerprints stay as they were.
+        for (name, server) in &self.stdio_mcp_servers {
+            let mut env = server
+                .env
+                .iter()
+                .map(|(key, value)| match value {
+                    super::mcp_stdio::StdioEnvValue::Plain(value) => format!("{key}={value}"),
+                    super::mcp_stdio::StdioEnvValue::FromChildEnv(source) => {
+                        format!("{key}=${source}")
+                    }
+                })
+                .collect::<Vec<_>>();
+            env.sort();
+            lines.push(format!(
+                "stdio_mcp={name};{};{};{};{}",
+                server.command,
+                server.args.join("\u{1f}"),
+                env.join(","),
+                server.cwd.as_deref().unwrap_or_default()
+            ));
+        }
 
         hex::encode(Sha256::digest(lines.join("\n").as_bytes()))
     }
@@ -1162,6 +1188,8 @@ struct ProxyState {
     remote: Option<RemoteProxyConfig>,
     mcp_inspection_token: String,
     hook_broker: Option<Arc<HookBroker>>,
+    /// Set once the run knows the agent's environment (`enable_mcp_broker`).
+    mcp_broker: Arc<RwLock<Option<Arc<super::mcp_stdio::McpBroker>>>>,
     revocation_path: Arc<RwLock<Option<PathBuf>>>,
     /// The address this proxy listens on, so a request addressed to the proxy
     /// itself is refused instead of forwarded back into it.
@@ -1229,6 +1257,8 @@ pub struct Proxy {
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
     mcp_inspection_token: String,
+    mcp_broker: Arc<RwLock<Option<Arc<super::mcp_stdio::McpBroker>>>>,
+    listen_address: std::net::SocketAddr,
     revocation_path: Arc<RwLock<Option<PathBuf>>>,
 }
 
@@ -1471,6 +1501,7 @@ impl Proxy {
             None
         };
         let revocation_path = Arc::new(RwLock::new(None));
+        let mcp_broker = Arc::new(RwLock::new(None));
         let state = ProxyState {
             secrets: Arc::new(placeholders),
             policy,
@@ -1500,6 +1531,7 @@ impl Proxy {
                     scan_lock: tokio::sync::Mutex::new(()),
                 })
             }),
+            mcp_broker: mcp_broker.clone(),
             revocation_path: revocation_path.clone(),
             listen_address: address,
         };
@@ -1589,6 +1621,8 @@ impl Proxy {
             audit_log,
             connections,
             mcp_inspection_token: state.mcp_inspection_token.clone(),
+            mcp_broker,
+            listen_address: address,
             revocation_path,
         })
     }
@@ -1599,6 +1633,34 @@ impl Proxy {
 
     pub fn mcp_inspection_token(&self) -> &str {
         &self.mcp_inspection_token
+    }
+
+    /// Starts serving `servers` to the agent, and returns the variables
+    /// `stashbase agent mcp connect` finds the broker by.
+    pub fn enable_mcp_broker(
+        &self,
+        servers: HashMap<String, super::mcp_stdio::StdioServerLaunch>,
+    ) -> HashMap<String, String> {
+        let broker = super::mcp_stdio::McpBroker::new(servers);
+        let env = HashMap::from([
+            (
+                super::mcp_stdio::MCP_BROKER_URL_ENV.to_owned(),
+                format!(
+                    "http://{}{}",
+                    self.listen_address,
+                    super::mcp_stdio::MCP_BROKER_PATH.trim_end_matches('/')
+                ),
+            ),
+            (
+                super::mcp_stdio::MCP_BROKER_TOKEN_ENV.to_owned(),
+                broker.token().to_owned(),
+            ),
+        ]);
+        *self
+            .mcp_broker
+            .write()
+            .expect("proxy MCP broker lock poisoned") = Some(Arc::new(broker));
+        env
     }
 
     pub fn set_revocation_path(&self, path: PathBuf) {
@@ -1641,7 +1703,7 @@ impl Drop for Proxy {
     }
 }
 
-fn placeholder_for(name: &str) -> String {
+pub(crate) fn placeholder_for(name: &str) -> String {
     format!("**STASHBASE_{name}**")
 }
 
@@ -1998,6 +2060,16 @@ fn proxy_request(
                 .unwrap());
         }
 
+        if connect_authority.is_none() {
+            if let Some(name) = request
+                .uri()
+                .path()
+                .strip_prefix(super::mcp_stdio::MCP_BROKER_PATH)
+                .map(str::to_owned)
+            {
+                return Ok(handle_mcp_broker(request, &name, &state));
+            }
+        }
         if request.uri().path() == DEPENDENCY_HOOK_PATH {
             return Ok(handle_dependency_hook(request, &state).await);
         }
@@ -2019,8 +2091,11 @@ fn proxy_request(
         // target from the Host header. Forwarding it would connect back to
         // this listener, again and again, until file descriptors run out.
         if connect_authority.is_none()
-            && upstream_authority(&request, None)
-                .is_ok_and(|authority| authority_is_listener(&authority, state.listen_address))
+            && upstream_authority(&request, None).is_ok_and(|authority| {
+                authority_is_listener(&authority, state.listen_address)
+                    || (request.uri().authority().is_none()
+                        && reached_through_forwarded_port(&authority, state.listen_address))
+            })
         {
             state.record_audit_with_request(
                 &request_id,
@@ -2635,6 +2710,128 @@ fn proxy_request(
             }
         }
     })
+}
+
+/// Upgrades an authorized `agent mcp connect` request to a raw stream and
+/// relays it to a freshly started stdio server (see `mcp_stdio`).
+fn handle_mcp_broker(
+    mut request: Request<Incoming>,
+    name: &str,
+    state: &ProxyState,
+) -> Response<ProxyBody> {
+    let broker = state
+        .mcp_broker
+        .read()
+        .expect("proxy MCP broker lock poisoned")
+        .clone();
+    let Some(broker) = broker else {
+        return proxy_error_response(
+            StatusCode::NOT_FOUND,
+            "proxy.mcp_broker_not_enabled",
+            "No stdio MCP servers are enabled for this run",
+        );
+    };
+    let token = request
+        .headers()
+        .get(hyper::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    if request.method() != Method::GET
+        || request.uri().query().is_some()
+        || token != Some(broker.token.as_str())
+    {
+        return proxy_error_response(
+            StatusCode::UNAUTHORIZED,
+            "proxy.mcp_broker_unauthorized",
+            "MCP broker request is not authorized for this run",
+        );
+    }
+    let Some(launch) = broker.servers.get(name).cloned() else {
+        return proxy_error_response(
+            StatusCode::NOT_FOUND,
+            "proxy.mcp_server_not_found",
+            &format!("No stdio MCP server named '{name}' in this run's profile"),
+        );
+    };
+    let upgrade = request
+        .headers()
+        .get(hyper::header::UPGRADE)
+        .and_then(|value| value.to_str().ok());
+    if !upgrade
+        .is_some_and(|value| value.eq_ignore_ascii_case(super::mcp_stdio::MCP_UPGRADE_PROTOCOL))
+    {
+        return proxy_error_response(
+            StatusCode::UPGRADE_REQUIRED,
+            "proxy.mcp_broker_upgrade_required",
+            "MCP broker requests must upgrade the connection",
+        );
+    }
+    let name = name.to_owned();
+    let relay_state = state.clone();
+    let task = tokio::spawn(async move {
+        let upgraded = match hyper::upgrade::on(&mut request).await {
+            Ok(upgraded) => upgraded,
+            Err(error) => {
+                debug!("MCP broker upgrade failed: {error:#}");
+                return;
+            }
+        };
+        let host = Some(crate::models::agent::STDIO_MCP_HOST);
+        let path = super::mcp_stdio::rule_path(&name);
+        relay_state.record_audit("mcp_server_started", host, None, Some(&name), None, None);
+        let result = super::mcp_stdio::serve(
+            TokioIo::new(upgraded),
+            &name,
+            &launch,
+            &relay_state.policy,
+            |event, elapsed| {
+                let request_id = new_local_request_id();
+                match event {
+                    super::mcp_stdio::RelayEvent::ToolCalled { tool } => relay_state
+                        .record_mcp_tool_with_request(
+                            &request_id,
+                            "mcp_tool_call",
+                            Some(tool),
+                            host,
+                            Some(&path),
+                            None,
+                            None,
+                            None,
+                            Some(elapsed),
+                            None,
+                        ),
+                    super::mcp_stdio::RelayEvent::ToolRefused { tool, denial } => relay_state
+                        .record_mcp_tool_with_request(
+                            &request_id,
+                            "mcp_tool_denied",
+                            tool,
+                            host,
+                            Some(&path),
+                            None,
+                            None,
+                            Some(StatusCode::FORBIDDEN),
+                            Some(elapsed),
+                            Some(&denial.reason),
+                        ),
+                }
+            },
+        )
+        .await;
+        if let Err(error) = &result {
+            debug!("stdio MCP server '{name}' ended: {error:#}");
+        }
+        relay_state.record_audit("mcp_server_stopped", host, None, Some(&name), None, None);
+    });
+    state.connections.track(task);
+    Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header(hyper::header::CONNECTION, "upgrade")
+        .header(
+            hyper::header::UPGRADE,
+            super::mcp_stdio::MCP_UPGRADE_PROTOCOL,
+        )
+        .body(full_body(Bytes::new()))
+        .unwrap()
 }
 
 async fn handle_dependency_hook(
@@ -3510,6 +3707,16 @@ fn upstream_authority(
 
 /// Whether `authority` (from a Host header or request URI) names this proxy's
 /// own listener.
+/// An origin-form request (sent to the proxy directly, not through it)
+/// naming an IP on the proxy's port: the proxy as the agent container sees
+/// it, through Docker's port forwarding (e.g. `0.250.250.254` on OrbStack),
+/// at an address that isn't the listener's own.
+fn reached_through_forwarded_port(authority: &str, listen: std::net::SocketAddr) -> bool {
+    split_authority(authority, false).is_some_and(|(host, port)| {
+        port == listen.port() && host.parse::<std::net::IpAddr>().is_ok()
+    })
+}
+
 fn authority_is_listener(authority: &str, listen: std::net::SocketAddr) -> bool {
     let Some((host, port)) = split_authority(authority, false) else {
         return false;
@@ -3829,9 +4036,9 @@ fn mcp_tool_name(bytes: &[u8]) -> Option<String> {
 /// agent and `reason` is a short audit code. Both name field paths from the
 /// profile, never request values.
 #[derive(Debug, PartialEq, Eq)]
-struct McpDenial {
-    message: String,
-    reason: String,
+pub struct McpDenial {
+    pub message: String,
+    pub reason: String,
 }
 
 impl McpDenial {
@@ -3855,7 +4062,7 @@ impl McpDenial {
     }
 }
 
-fn authorize_mcp_request(
+pub(super) fn authorize_mcp_request(
     body: &[u8],
     policy: &ProxyPolicy,
     host: Option<&str>,
@@ -4010,7 +4217,7 @@ fn unmet_mcp_argument(
         .map(|field| (field, "unlisted_field"))
 }
 
-fn filter_mcp_tools_list_response(
+pub(super) fn filter_mcp_tools_list_response(
     body: &[u8],
     policy: &ProxyPolicy,
     host: Option<&str>,
@@ -4120,10 +4327,18 @@ fn fingerprint_conditions(
 }
 
 fn policy_denies_host(policy: &ProxyPolicy, host: &str) -> bool {
-    policy
-        .denied_hosts
-        .iter()
-        .any(|denied| denied == "*" || host_matches(denied, host))
+    is_reserved_internal_host(host)
+        || policy
+            .denied_hosts
+            .iter()
+            .any(|denied| denied == "*" || host_matches(denied, host))
+}
+
+/// Hosts that only name things inside the proxy, such as the pseudo-endpoint
+/// stdio servers' tool rules are compiled under. Never a real destination.
+fn is_reserved_internal_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "stashbase.internal" || host.ends_with(".stashbase.internal")
 }
 
 /// A credential placeholder the request carries. `pending` is set when the
@@ -4629,6 +4844,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         }
     }
 
@@ -4720,6 +4936,21 @@ mod tests {
             filtered.next().await.unwrap().unwrap(),
             Bytes::from_static(b": keepalive\n\n")
         );
+    }
+
+    #[test]
+    fn the_stdio_rule_host_is_never_a_destination() {
+        let mut policy = ProxyPolicy::permissive();
+        policy.allowed_egress_hosts = HashSet::from(["*".to_owned()]);
+        for host in [
+            crate::models::agent::STDIO_MCP_HOST,
+            "STDIO.MCP.STASHBASE.INTERNAL.",
+            "stashbase.internal",
+        ] {
+            assert!(policy_denies_host(&policy, host), "{host}");
+        }
+        assert!(!policy_denies_host(&policy, "stashbase.dev"));
+        assert!(!policy_denies_host(&policy, "notstashbase.internal"));
     }
 
     #[test]
@@ -5331,6 +5562,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -5518,6 +5750,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         }
     }
 
@@ -6354,6 +6587,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -6437,6 +6671,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         }
     }
 
@@ -6683,6 +6918,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         assert!(secret_allows_request(
             &policy,
@@ -7228,6 +7464,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -7435,6 +7672,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -7495,6 +7733,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -7531,6 +7770,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -7551,6 +7791,7 @@ mod tests {
             hook_broker: None,
             revocation_path: Arc::new(RwLock::new(None)),
             listen_address: "127.0.0.1:1".parse().unwrap(),
+            mcp_broker: Default::default(),
         };
 
         assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
@@ -7583,6 +7824,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -7603,6 +7845,7 @@ mod tests {
             hook_broker: None,
             revocation_path: Arc::new(RwLock::new(None)),
             listen_address: "127.0.0.1:1".parse().unwrap(),
+            mcp_broker: Default::default(),
         };
 
         assert!(state.host_allowed_for_connect(Some("mcp.context7.com")));
@@ -7624,6 +7867,14 @@ mod tests {
         assert!(authority_is_listener("localhost:5000", loopback));
         assert!(authority_is_listener("127.0.0.1:5000", loopback));
         assert!(!authority_is_listener("127.0.0.1", loopback));
+    }
+
+    #[test]
+    fn an_ip_on_the_proxy_port_is_the_proxy_seen_through_docker() {
+        let listen: std::net::SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        assert!(reached_through_forwarded_port("0.250.250.254:5000", listen));
+        assert!(!reached_through_forwarded_port("0.250.250.254:443", listen));
+        assert!(!reached_through_forwarded_port("example.com:5000", listen));
     }
 
     #[tokio::test]
@@ -7713,6 +7964,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_PAT_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -7773,6 +8025,7 @@ mod tests {
             sandbox_isolated_paths: Vec::new(),
             workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
+            stdio_mcp_servers: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -8147,6 +8400,7 @@ mod tests {
                 sandbox_isolated_paths: Vec::new(),
                 workspace_extra_paths: Vec::new(),
                 config_env: Default::default(),
+                stdio_mcp_servers: Default::default(),
             },
             None,
         )
@@ -8194,6 +8448,7 @@ mod tests {
                 sandbox_isolated_paths: Vec::new(),
                 workspace_extra_paths: Vec::new(),
                 config_env: Default::default(),
+                stdio_mcp_servers: Default::default(),
             },
             None,
         )
@@ -8242,6 +8497,7 @@ mod tests {
                 sandbox_isolated_paths: Vec::new(),
                 workspace_extra_paths: Vec::new(),
                 config_env: Default::default(),
+                stdio_mcp_servers: Default::default(),
             },
             None,
         )

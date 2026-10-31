@@ -511,6 +511,7 @@ pub async fn handle_remote_agent_run(
     let allow_network_listeners = policy.allow_network_listeners;
     let backend = policy.backend;
     let config_env = policy.config_env.clone();
+    let stdio_mcp_servers = policy.stdio_mcp_servers.clone();
     ensure_hooks_can_be_confined(hooks, backend)?;
     let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
         policy.sandbox_image.as_deref(),
@@ -681,6 +682,44 @@ pub async fn handle_remote_agent_run(
     if let Some(mut spinner) = setup_spinner.take() {
         spinner.clear();
     }
+    let git_mounts = run_worktree.git_mounts();
+    // Stdio servers run on this machine; their HTTP calls go through this
+    // relay to the remote proxy like the agent's own.
+    let _mcp_registration = match enable_stdio_mcp_servers(
+        &proxy,
+        &stdio_mcp_servers,
+        &mut child_env,
+        &StdioLaunchContext {
+            workdir: &scan_workdir,
+            sandbox,
+            allow_network_listeners,
+            env_removals: &source_env_names,
+            restrict_stashbase_credentials: true,
+            denied_read_paths: &denied_read_paths,
+            denied_write_paths: &denied_write_paths,
+            extra_paths: &extra_paths,
+            log_dir: command_audit_log.as_ref().and_then(stdio_mcp_log_dir),
+            docker: docker_network.as_ref().map(|network| DockerServerContext {
+                network,
+                image: &agent_image,
+                memory: sandbox_memory.as_deref(),
+                cpus: sandbox_cpus.as_deref(),
+                isolated_paths: &sandbox_isolated_paths,
+                git_mounts: git_mounts.as_ref(),
+            }),
+        },
+        silent,
+    ) {
+        Ok(registration) => registration,
+        Err(error) => {
+            proxy.stop().await;
+            if let Some(network) = &docker_network {
+                let _ = super::docker_sandbox::remove_run_network(network);
+            }
+            run_worktree.finish();
+            return Err(error);
+        }
+    };
     let result = subprocess::run_command_with_filesystem_policy_and_network(
         &cmd,
         args,
@@ -701,7 +740,7 @@ pub async fn handle_remote_agent_run(
         &sandbox_isolated_paths,
         &extra_paths,
         run_worktree.workdir(),
-        run_worktree.git_mounts().as_ref(),
+        git_mounts.as_ref(),
     )
     .await;
     proxy.stop().await;
@@ -1831,6 +1870,10 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.config_env.clone())
         .unwrap_or_default();
+    let stdio_mcp_servers = proxy_policy
+        .as_ref()
+        .map(|policy| policy.stdio_mcp_servers.clone())
+        .unwrap_or_default();
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
@@ -1994,6 +2037,41 @@ async fn handle_run(
             spinner.clear();
         }
         let git_mounts = run_worktree.git_mounts();
+        let _mcp_registration = match enable_stdio_mcp_servers(
+            &proxy,
+            &stdio_mcp_servers,
+            &mut child_env,
+            &StdioLaunchContext {
+                workdir: &scan_workdir,
+                sandbox,
+                allow_network_listeners,
+                env_removals: &secret_bindings.keys().cloned().collect::<Vec<_>>(),
+                restrict_stashbase_credentials,
+                denied_read_paths: &denied_read_paths,
+                denied_write_paths: &denied_write_paths,
+                extra_paths: &extra_paths,
+                log_dir: command_audit_log.as_ref().and_then(stdio_mcp_log_dir),
+                docker: docker_network.as_ref().map(|network| DockerServerContext {
+                    network,
+                    image: &agent_image,
+                    memory: sandbox_memory.as_deref(),
+                    cpus: sandbox_cpus.as_deref(),
+                    isolated_paths: &sandbox_isolated_paths,
+                    git_mounts: git_mounts.as_ref(),
+                }),
+            },
+            silent,
+        ) {
+            Ok(registration) => registration,
+            Err(error) => {
+                proxy.stop().await;
+                if let Some(network) = &docker_network {
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                }
+                run_worktree.finish();
+                return Err(error);
+            }
+        };
         let command = Box::pin(subprocess::run_command_with_filesystem_policy_and_network(
             &cmd,
             args,
@@ -2086,6 +2164,204 @@ fn apply_config_env(
             .entry(name.clone())
             .or_insert_with(|| value.clone());
     }
+}
+
+/// What every stdio server shares with the agent's own launch.
+struct StdioLaunchContext<'a> {
+    workdir: &'a std::path::Path,
+    sandbox: bool,
+    allow_network_listeners: bool,
+    env_removals: &'a [String],
+    restrict_stashbase_credentials: bool,
+    denied_read_paths: &'a [String],
+    denied_write_paths: &'a [String],
+    extra_paths: &'a [super::extra_paths::ResolvedExtraPath],
+    log_dir: Option<std::path::PathBuf>,
+    /// Set for the Docker backend: each server gets its own container.
+    docker: Option<DockerServerContext<'a>>,
+}
+
+struct DockerServerContext<'a> {
+    network: &'a super::docker_sandbox::DockerRunNetwork,
+    image: &'a str,
+    memory: Option<&'a str>,
+    cpus: Option<&'a str>,
+    isolated_paths: &'a [String],
+    git_mounts: Option<&'a super::docker_sandbox::GitMounts>,
+}
+
+/// Starts serving the profile's stdio servers and gives the agent the
+/// variables `stashbase agent mcp connect` finds them by. Every backend
+/// takes this path: only how a server is launched differs.
+fn enable_stdio_mcp_servers(
+    proxy: &super::proxy::Proxy,
+    servers: &std::collections::BTreeMap<String, super::mcp_stdio::StdioMcpServerConfig>,
+    child_env: &mut HashMap<String, String>,
+    context: &StdioLaunchContext<'_>,
+    silent: bool,
+) -> anyhow::Result<Option<crate::handlers::agent::sessions::McpBrokerRegistration>> {
+    use super::mcp_stdio::{MCP_BROKER_PATH, MCP_BROKER_TOKEN_ENV, MCP_BROKER_URL_ENV};
+    if servers.is_empty() {
+        return Ok(None);
+    }
+    let launches = stdio_mcp_launches(servers, child_env, context)?;
+    if !silent {
+        let names = servers.keys().cloned().collect::<Vec<_>>().join(", ");
+        eprintln!(
+            "stdio MCP servers: {names} (register each once in your agent's MCP config as `stashbase agent mcp connect <name>`)"
+        );
+    }
+    let mut broker_env = proxy.enable_mcp_broker(launches);
+    if context.docker.is_some() {
+        // The agent container reaches the proxy at the address its own
+        // proxy variables already name, not the host's.
+        let proxy_url = child_env
+            .get("HTTP_PROXY")
+            .context("the agent environment has no proxy address")?;
+        broker_env.insert(
+            MCP_BROKER_URL_ENV.to_owned(),
+            format!(
+                "{}{}",
+                proxy_url.trim_end_matches('/'),
+                MCP_BROKER_PATH.trim_end_matches('/')
+            ),
+        );
+    }
+    // A container's agent finds the broker in a file mounted into it; on
+    // this machine, by the run's pid.
+    let registration = if context.docker.is_none() {
+        let endpoint = crate::handlers::agent::sessions::McpBrokerEndpoint {
+            url: broker_env[MCP_BROKER_URL_ENV].clone(),
+            token: broker_env[MCP_BROKER_TOKEN_ENV].clone(),
+        };
+        match crate::handlers::agent::sessions::McpBrokerRegistration::register(endpoint) {
+            Ok(registration) => Some(registration),
+            Err(error) => {
+                eprintln!(
+                    "{} agents that clear their MCP servers' environment (Codex) can't reach stdio MCP servers in this run: {error}",
+                    "Warning:".yellow_if_tty_stderr()
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    child_env.extend(broker_env);
+    Ok(registration)
+}
+
+/// Each stdio server's launch: the agent's environment plus the server's
+/// `env`, in the run's workdir, under the agent's own sandbox or, for the
+/// Docker backend, in a container of its own beside the agent's.
+fn stdio_mcp_launches(
+    servers: &std::collections::BTreeMap<String, super::mcp_stdio::StdioMcpServerConfig>,
+    child_env: &HashMap<String, String>,
+    context: &StdioLaunchContext<'_>,
+) -> anyhow::Result<HashMap<String, super::mcp_stdio::StdioServerLaunch>> {
+    let extra_write_roots = context
+        .extra_paths
+        .iter()
+        .filter(|extra| !extra.read_only)
+        .map(|extra| extra.path.clone())
+        .collect::<Vec<_>>();
+    servers
+        .iter()
+        .map(|(name, server)| {
+            let env = server
+                .resolve_env(child_env)
+                .with_context(|| format!("MCP server '{name}'"))?;
+            let cwd = match &server.cwd {
+                Some(cwd) => context.workdir.join(cwd),
+                None => context.workdir.to_owned(),
+            };
+            let stderr_log = context
+                .log_dir
+                .as_ref()
+                .map(|dir| dir.join(format!("{name}.log")));
+            if let Some(docker) = &context.docker {
+                let (program, mut args, name_arg) =
+                    super::docker_sandbox::docker_mcp_server_command(
+                        name,
+                        &server.command,
+                        &server.args,
+                        docker.network,
+                        context.workdir,
+                        docker.git_mounts,
+                        context.denied_read_paths,
+                        context.denied_write_paths,
+                        &env,
+                        docker.image,
+                        docker.memory,
+                        docker.cpus,
+                        docker.isolated_paths,
+                        context.extra_paths,
+                    )
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "failed to build the container for MCP server '{name}': {error}"
+                        )
+                    })?;
+                if server.cwd.is_some() {
+                    if let Some(index) = args.iter().position(|arg| arg == "-w") {
+                        args[index + 1] = cwd.to_string_lossy().into_owned();
+                    }
+                }
+                // `docker run` itself: its environment is not the
+                // container's, which `docker_mcp_server_command` passed in.
+                return Ok((
+                    name.clone(),
+                    super::mcp_stdio::StdioServerLaunch {
+                        program,
+                        args,
+                        env: HashMap::new(),
+                        env_removals: Vec::new(),
+                        cwd: context.workdir.to_owned(),
+                        stderr_log,
+                        container_name_arg: Some(name_arg),
+                    },
+                ));
+            }
+            let (program, args, env_removals) = subprocess::native_sandboxed_launch(
+                &server.command,
+                &server.args,
+                context.sandbox,
+                context.allow_network_listeners,
+                &env,
+                context.env_removals,
+                context.restrict_stashbase_credentials,
+                context.denied_read_paths,
+                context.denied_write_paths,
+                context.workdir,
+                &extra_write_roots,
+            )
+            .with_context(|| format!("failed to sandbox MCP server '{name}'"))?;
+            Ok((
+                name.clone(),
+                super::mcp_stdio::StdioServerLaunch {
+                    program,
+                    args,
+                    env,
+                    env_removals,
+                    cwd,
+                    stderr_log,
+                    container_name_arg: None,
+                },
+            ))
+        })
+        .collect()
+}
+
+/// Where this run's stdio servers write their stderr: next to the audit log,
+/// one directory per session, created when a server first starts.
+fn stdio_mcp_log_dir(audit_log: &super::proxy::ProxyAuditLog) -> Option<std::path::PathBuf> {
+    Some(
+        audit_log
+            .path()
+            .parent()?
+            .join("mcp-logs")
+            .join(audit_log.session_id()),
+    )
 }
 
 fn apply_secret_bindings(

@@ -241,10 +241,18 @@ fn denial_label(event: &ProxyAuditLogEvent) -> String {
             event.method.as_deref().unwrap_or("-"),
             event.path.as_deref().unwrap_or_default(),
         ),
-        "mcp_tool_denied" => format!(
-            "MCP {} on {host}",
-            event.mcp_tool.as_deref().unwrap_or("request")
-        ),
+        "mcp_tool_denied" => {
+            let tool = event.mcp_tool.as_deref().unwrap_or("request");
+            match event.path.as_deref() {
+                Some(path) if host == crate::models::agent::STDIO_MCP_HOST => {
+                    format!(
+                        "MCP {tool} on stdio server {}",
+                        path.trim_start_matches('/')
+                    )
+                }
+                _ => format!("MCP {tool} on {host}"),
+            }
+        }
         "filesystem_denied" => format!(
             "{} {}",
             event.operation.as_deref().unwrap_or("access"),
@@ -694,6 +702,14 @@ paths = ["/repos/o/r/*"]
             "stashbase agent explain --profile dev --host api.github.com --method POST --path /user"
         ));
         assert!(refused(event("mcp_tool_denied")).contains("allow_tools"));
+        let mut stdio = event("mcp_tool_denied");
+        stdio.destination_host = Some(crate::models::agent::STDIO_MCP_HOST.to_owned());
+        stdio.path = Some("/github".to_owned());
+        stdio.mcp_tool = Some("delete_repo".to_owned());
+        assert_eq!(
+            denial_label(&stdio),
+            "MCP delete_repo on stdio server github"
+        );
         assert!(refused(event("filesystem_denied")).contains("[filesystem]"));
     }
 
