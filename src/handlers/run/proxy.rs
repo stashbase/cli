@@ -2091,8 +2091,11 @@ fn proxy_request(
         // target from the Host header. Forwarding it would connect back to
         // this listener, again and again, until file descriptors run out.
         if connect_authority.is_none()
-            && upstream_authority(&request, None)
-                .is_ok_and(|authority| authority_is_listener(&authority, state.listen_address))
+            && upstream_authority(&request, None).is_ok_and(|authority| {
+                authority_is_listener(&authority, state.listen_address)
+                    || (request.uri().authority().is_none()
+                        && reached_through_forwarded_port(&authority, state.listen_address))
+            })
         {
             state.record_audit_with_request(
                 &request_id,
@@ -3704,6 +3707,16 @@ fn upstream_authority(
 
 /// Whether `authority` (from a Host header or request URI) names this proxy's
 /// own listener.
+/// An origin-form request (sent to the proxy directly, not through it)
+/// naming an IP on the proxy's port: the proxy as the agent container sees
+/// it, through Docker's port forwarding (e.g. `0.250.250.254` on OrbStack),
+/// at an address that isn't the listener's own.
+fn reached_through_forwarded_port(authority: &str, listen: std::net::SocketAddr) -> bool {
+    split_authority(authority, false).is_some_and(|(host, port)| {
+        port == listen.port() && host.parse::<std::net::IpAddr>().is_ok()
+    })
+}
+
 fn authority_is_listener(authority: &str, listen: std::net::SocketAddr) -> bool {
     let Some((host, port)) = split_authority(authority, false) else {
         return false;
@@ -7854,6 +7867,14 @@ mod tests {
         assert!(authority_is_listener("localhost:5000", loopback));
         assert!(authority_is_listener("127.0.0.1:5000", loopback));
         assert!(!authority_is_listener("127.0.0.1", loopback));
+    }
+
+    #[test]
+    fn an_ip_on_the_proxy_port_is_the_proxy_seen_through_docker() {
+        let listen: std::net::SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        assert!(reached_through_forwarded_port("0.250.250.254:5000", listen));
+        assert!(!reached_through_forwarded_port("0.250.250.254:443", listen));
+        assert!(!reached_through_forwarded_port("example.com:5000", listen));
     }
 
     #[tokio::test]
