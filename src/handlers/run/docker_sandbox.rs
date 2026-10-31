@@ -2008,9 +2008,9 @@ cat <&3 &
 reader=$!
 trap 'kill "$reader" 2>/dev/null' EXIT
 cat >&3
-# bash can't half-close the socket, so the broker doesn't learn that the
-# agent is done: let answers already on their way arrive, then hang up.
-{ sleep 5; kill "$reader" 2>/dev/null; } &
+# bash can't half-close the socket, so tell the broker the agent is done;
+# it relays any answers still owed, then closes the connection.
+printf '\0stashbase:client-closed\n' >&3
 wait "$reader"
 "#;
 

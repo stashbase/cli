@@ -37,6 +37,11 @@ const SERVER_EXITED_CODE: i64 = -32002;
 /// No single MCP message is anywhere near this; a line that is would only
 /// make the broker buffer without bound.
 const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+/// What the Docker stand-in sends when the agent closes its stdin, since bash
+/// can't half-close the connection. Not valid JSON-RPC, so no agent message
+/// is ever mistaken for it.
+pub(crate) const CLIENT_CLOSED_LINE: &[u8] = b"\x00stashbase:client-closed";
+
 /// How long a server may keep answering after the agent stops sending.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -341,12 +346,16 @@ where
     loop {
         tokio::select! {
             read = read_line(&mut client_lines, &mut client_buffer), if client_open => {
-                if read? == 0 {
+                let closed = read? == 0 || trim_newline(&client_buffer) == CLIENT_CLOSED_LINE;
+                if closed {
                     // The agent is done sending. Close the server's stdin so
-                    // it can finish and exit on its own, and keep relaying
-                    // its answers until it does.
+                    // it can finish on its own; relay the answers it still
+                    // owes, and stop as soon as it owes none.
                     client_open = false;
                     let _ = server_in.shutdown().await;
+                    if unanswered.is_empty() {
+                        break;
+                    }
                     drain.as_mut().reset(tokio::time::Instant::now() + DRAIN_TIMEOUT);
                     continue;
                 }
@@ -397,6 +406,9 @@ where
                         unanswered.remove(&id);
                     }
                     let _ = to_client.send(filter.server_line(line));
+                    if !client_open && unanswered.is_empty() {
+                        break;
+                    }
                 }
             }
             Some(mut message) = to_client_rx.recv() => {
@@ -956,5 +968,45 @@ done
             .unwrap()
             .contains("MCP server 'github' exited before answering"));
         relay.await.unwrap().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_agent_leaves_at_once_when_nothing_is_owed() {
+        for marker in [false, true] {
+            let launch = StdioServerLaunch {
+                program: "/bin/sh".to_owned(),
+                // Like many Node servers: keeps running after stdin closes.
+                args: vec!["-c".to_owned(), "cat >/dev/null; sleep 30".to_owned()],
+                env: HashMap::new(),
+                env_removals: Vec::new(),
+                cwd: std::env::temp_dir(),
+                stderr_log: None,
+                container_name_arg: None,
+            };
+            let policy = policy();
+            let (agent, broker_side) = tokio::io::duplex(64 * 1024);
+            let relay = tokio::spawn(async move {
+                serve(broker_side, "github", &launch, &policy, |_, _| {}).await
+            });
+            let (read, mut write) = tokio::io::split(agent);
+            let started = Instant::now();
+            if marker {
+                write.write_all(CLIENT_CLOSED_LINE).await.unwrap();
+                write.write_all(b"\n").await.unwrap();
+            } else {
+                write.shutdown().await.unwrap();
+            }
+            let mut lines = BufReader::new(read).lines();
+            assert!(
+                tokio::time::timeout(Duration::from_secs(4), lines.next_line())
+                    .await
+                    .expect("the connection closes without waiting for the server")
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(started.elapsed() < DRAIN_TIMEOUT, "marker={marker}");
+            relay.await.unwrap().unwrap();
+        }
     }
 }
