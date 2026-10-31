@@ -233,11 +233,6 @@ fn denial_label(event: &ProxyAuditLogEvent) -> String {
     match event.action.as_str() {
         "host_denied" => match &event.binding_name {
             Some(binding) => format!("{binding} {host}"),
-            // Allowing an MCP server's host opens all of its tools; an
-            // `[mcp_servers]` entry is what applies tool rules.
-            None if host.starts_with("mcp.") => {
-                format!("host {host} (MCP server: declare it under [mcp_servers] for tool rules)")
-            }
             None => format!("host {host}"),
         },
         "credential_rule_denied" => format!(
@@ -707,10 +702,6 @@ paths = ["/repos/o/r/*"]
             "stashbase agent explain --profile dev --host api.github.com --method POST --path /user"
         ));
         assert!(refused(event("mcp_tool_denied")).contains("allow_tools"));
-        let mut mcp_host = event("host_denied");
-        mcp_host.destination_host = Some("mcp.linear.app".to_owned());
-        mcp_host.binding_name = None;
-        assert!(denial_label(&mcp_host).contains("declare it under [mcp_servers]"));
         let mut stdio = event("mcp_tool_denied");
         stdio.destination_host = Some(crate::models::agent::STDIO_MCP_HOST.to_owned());
         stdio.path = Some("/github".to_owned());
