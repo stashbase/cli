@@ -1967,22 +1967,29 @@ exit 1
 pub(crate) const MCP_CONNECT_SCRIPT: &str = r#"#!/usr/bin/env bash
 name=$1
 cr=$'\r'
+# Agents show a failed `initialize` but rarely an MCP server's stderr, so a
+# failure also answers the agent's first request.
+fail() {
+  echo "$1" >&2
+  if IFS= read -r -t 10 request; then
+    id=$(printf '%s' "$request" | sed -nE 's/.*"id"[[:space:]]*:[[:space:]]*("[^"]*"|[0-9]+).*/\1/p')
+    message=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32002,"message":"%s"}}\n' "${id:-null}" "$message"
+  fi
+  exit 1
+}
 url=${STASHBASE_MCP_BROKER_URL:-}
 token=${STASHBASE_MCP_BROKER_TOKEN:-}
 if [ -z "$url" ] && [ -r /run/stashbase/mcp-broker ]; then
   { read -r url; read -r token; } < /run/stashbase/mcp-broker
 fi
 if [ -z "$url" ] || [ -z "$token" ]; then
-  echo "agent mcp connect only works inside 'stashbase agent run' with a profile that declares [mcp_servers.$name] command" >&2
-  exit 1
+  fail "agent mcp connect only works inside 'stashbase agent run' with a profile that declares [mcp_servers.$name] command"
 fi
 rest=${url#http://}
 hostport=${rest%%/*}
 path=/${rest#*/}
-exec 3<>"/dev/tcp/${hostport%:*}/${hostport##*:}" || {
-  echo "cannot reach the run's Agent Proxy at $hostport; has the run ended?" >&2
-  exit 1
-}
+exec 3<>"/dev/tcp/${hostport%:*}/${hostport##*:}" || fail "cannot reach the run's Agent Proxy at $hostport; has the run ended?"
 printf 'GET %s/%s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nConnection: upgrade\r\nUpgrade: stashbase-mcp\r\n\r\n' \
   "$path" "$name" "$hostport" "$token" >&3
 IFS= read -r status <&3
@@ -1991,8 +1998,7 @@ case "$status" in
   *)
     message=$(timeout 2 cat <&3 | sed -n 's/.*"message":"\([^"]*\)".*/\1/p' | head -n 1)
     [ -n "$message" ] || message="the run's MCP broker refused the connection (${status%"$cr"})"
-    echo "$message" >&2
-    exit 1
+    fail "$message"
     ;;
 esac
 while IFS= read -r line <&3; do

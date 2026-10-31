@@ -19,6 +19,16 @@ use crate::{
 };
 
 pub async fn handle_agent_mcp_connect_command(command: AgentMcpConnectCommand) -> Result<()> {
+    let Err(error) = connect(command).await else {
+        return Ok(());
+    };
+    // Agents show a failed `initialize` but rarely an MCP server's stderr,
+    // so the reason goes back as the answer to the agent's first request.
+    let _ = answer_first_request(&format!("{error:#}")).await;
+    Err(error)
+}
+
+async fn connect(command: AgentMcpConnectCommand) -> Result<()> {
     let endpoint = broker_endpoint(
         std::env::var(MCP_BROKER_URL_ENV).ok(),
         std::env::var(MCP_BROKER_TOKEN_ENV).ok(),
@@ -78,6 +88,39 @@ pub async fn handle_agent_mcp_connect_command(command: AgentMcpConnectCommand) -
         () = to_server => {}
     }
     Ok(())
+}
+
+/// Answers the agent's first request, if it sends one soon, with `message`.
+async fn answer_first_request(message: &str) -> Result<()> {
+    use tokio::io::AsyncBufReadExt;
+    let mut line = String::new();
+    let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        stdin.read_line(&mut line),
+    )
+    .await??;
+    let reply = failure_reply(&line, message);
+    let mut stdout = tokio::io::stdout();
+    stdout.write_all(&reply).await?;
+    stdout.flush().await?;
+    Ok(())
+}
+
+/// A JSON-RPC error answering `request`, newline-terminated.
+fn failure_reply(request: &str, message: &str) -> Vec<u8> {
+    let id = serde_json::from_str::<serde_json::Value>(request)
+        .ok()
+        .and_then(|request| request.get("id").cloned())
+        .unwrap_or(serde_json::Value::Null);
+    let mut reply = serde_json::to_vec(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": -32002, "message": message },
+    }))
+    .expect("a JSON-RPC error always serializes");
+    reply.push(b'\n');
+    reply
 }
 
 /// The run's broker: from the environment `agent run` gives the agent, or,
@@ -141,6 +184,23 @@ mod tests {
         assert_eq!(found, Ok(endpoint("http://127.0.0.1:2/__stashbase/mcp")));
         let partial = broker_endpoint(Some("http://x".to_owned()), None, || Err("none".to_owned()));
         assert_eq!(partial, Err("none".to_owned()));
+    }
+
+    #[test]
+    fn failures_answer_the_first_request_with_its_id() {
+        let reply: serde_json::Value = serde_json::from_slice(&failure_reply(
+            r#"{"jsonrpc":"2.0","id":7,"method":"initialize","params":{}}"#,
+            "No stdio MCP server named 'x' in this run's profile",
+        ))
+        .unwrap();
+        assert_eq!(reply["id"], 7);
+        assert_eq!(
+            reply["error"]["message"],
+            "No stdio MCP server named 'x' in this run's profile"
+        );
+        let unreadable: serde_json::Value =
+            serde_json::from_slice(&failure_reply("not json", "m")).unwrap();
+        assert_eq!(unreadable["id"], serde_json::Value::Null);
     }
 
     #[test]
