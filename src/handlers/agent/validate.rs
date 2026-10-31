@@ -20,8 +20,9 @@ use crate::{
     config::config,
     handlers::agent::env_check,
     models::agent::{
-        AgentFieldCondition, AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile,
-        AgentScalar,
+        AgentFieldCondition, AgentHttpRule, AgentHttpRuleEffect, AgentMcpEnvBinding,
+        AgentMcpEnvValue, AgentMcpServer, AgentMcpTransport, AgentProfile, AgentScalar,
+        STDIO_MCP_HOST,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
@@ -979,32 +980,18 @@ fn validate_mcp_server(
     checks: &mut Vec<Check>,
 ) {
     let label = format!("MCP server '{name}'");
-    match reqwest::Url::parse(&server.url) {
-        Ok(url)
-            if matches!(url.scheme(), "http" | "https")
-                && url.host_str().is_some()
-                && url.fragment().is_none()
-                && url.username().is_empty()
-                && url.password().is_none() =>
-        {
-            if url.path().is_empty() {
-                checks.push(fail(
-                    format!("{label} url"),
-                    "The URL must include an MCP endpoint path.".to_owned(),
-                ));
-            }
-            let endpoint = url.to_string();
-            if !seen_endpoints.insert(endpoint) {
-                checks.push(warn(
-                    label.clone(),
-                    "Duplicates another configured MCP server endpoint.".to_owned(),
-                ));
-            }
+    match server.transport() {
+        Some(AgentMcpTransport::Http(url)) => validate_mcp_url(&label, url, seen_endpoints, checks),
+        Some(AgentMcpTransport::Stdio(command)) => {
+            validate_stdio_mcp_server(&label, command, server, profile, checks)
         }
-        _ => checks.push(fail(
-            format!("{label} url"),
-            "Must be an absolute http:// or https:// URL with a host and no userinfo or fragment."
-                .to_owned(),
+        None if server.url.is_some() => checks.push(fail(
+            label.clone(),
+            "Set either 'url' (HTTP) or 'command' (stdio), not both.".to_owned(),
+        )),
+        None => checks.push(fail(
+            label.clone(),
+            "Set 'url' for an HTTP server or 'command' for a stdio server.".to_owned(),
         )),
     }
     if let Some(binding) = &server.binding {
@@ -1035,6 +1022,129 @@ fn validate_mcp_server(
             ));
         }
     }
+    validate_mcp_server_tool_rules(&label, server, checks);
+}
+
+/// A stdio server's command, its `env` and the HTTP-only fields it can't use.
+fn validate_stdio_mcp_server(
+    label: &str,
+    command: &str,
+    server: &AgentMcpServer,
+    profile: &AgentProfile,
+    checks: &mut Vec<Check>,
+) {
+    if command.trim().is_empty() {
+        checks.push(fail(
+            format!("{label} command"),
+            "Must name the program that starts the server.".to_owned(),
+        ));
+    }
+    for (field, set) in [
+        ("binding", server.binding.is_some()),
+        ("header", server.header.is_some()),
+        ("value_template", server.value_template.is_some()),
+    ] {
+        if set {
+            checks.push(fail(
+                format!("{label} {field}"),
+                format!("'{field}' applies to HTTP servers only; give a stdio server its credential through 'env' with {{ binding = \"NAME\" }}."),
+            ));
+        }
+    }
+    if let Some(cwd) = &server.cwd {
+        let path = std::path::Path::new(cwd);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|part| part == std::path::Component::ParentDir)
+        {
+            checks.push(fail(
+                format!("{label} cwd"),
+                "Must be a path inside the run's working directory, without '..'.".to_owned(),
+            ));
+        }
+    }
+    for (name, value) in &server.env {
+        if !valid_environment_name(name) {
+            checks.push(fail(
+                format!("{label} env"),
+                format!("{name} is not a valid environment variable name."),
+            ));
+        } else if let Some(reason) = env_check::reserved_env_reason(name) {
+            checks.push(fail(format!("{label} env"), format!("{name} {reason}.")));
+        }
+        match value {
+            AgentMcpEnvValue::Binding(AgentMcpEnvBinding { binding }) => {
+                if profile.personal_credentials.contains_key(binding) {
+                    checks.push(fail(
+                        format!("{label} env"),
+                        format!("{name}: '{binding}' is a personal credential, which only remote sessions resolve; stdio servers run locally, so bind a [secrets] entry."),
+                    ));
+                } else if !profile.secrets.bindings.contains_key(binding) {
+                    checks.push(fail(
+                        format!("{label} env"),
+                        format!("{name}: binding '{binding}' is not declared in [secrets]."),
+                    ));
+                }
+            }
+            AgentMcpEnvValue::Plain(value) => {
+                if value.to_string().contains('\0') {
+                    checks.push(fail(
+                        format!("{label} env"),
+                        format!(
+                            "{name} contains a NUL byte, which an environment variable can't hold."
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn validate_mcp_url(
+    label: &str,
+    url: &str,
+    seen_endpoints: &mut HashSet<String>,
+    checks: &mut Vec<Check>,
+) {
+    match reqwest::Url::parse(url) {
+        Ok(url)
+            if matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.fragment().is_none()
+                && url.username().is_empty()
+                && url.password().is_none() =>
+        {
+            if url.path().is_empty() {
+                checks.push(fail(
+                    format!("{label} url"),
+                    "The URL must include an MCP endpoint path.".to_owned(),
+                ));
+            }
+            if url.host_str() == Some(STDIO_MCP_HOST) {
+                checks.push(fail(
+                    format!("{label} url"),
+                    format!("{STDIO_MCP_HOST} is reserved for stdio servers."),
+                ));
+            }
+            let endpoint = url.to_string();
+            if !seen_endpoints.insert(endpoint) {
+                checks.push(warn(
+                    label.to_owned(),
+                    "Duplicates another configured MCP server endpoint.".to_owned(),
+                ));
+            }
+        }
+        _ => checks.push(fail(
+            format!("{label} url"),
+            "Must be an absolute http:// or https:// URL with a host and no userinfo or fragment."
+                .to_owned(),
+        )),
+    }
+}
+
+fn validate_mcp_server_tool_rules(label: &str, server: &AgentMcpServer, checks: &mut Vec<Check>) {
+    let label = label.to_owned();
     validate_mcp_server_tools(&label, "allow_tools", &server.allow_tools, checks);
     validate_mcp_server_tools(&label, "deny_tools", &server.deny_tools, checks);
     for (index, rule) in server.tool_rules.iter().enumerate() {
@@ -2060,6 +2170,74 @@ mod tests {
         assert!(!filesystem_checks(&plain)
             .iter()
             .any(|check| check.name == "Filesystem patterns"));
+    }
+
+    fn mcp_failures(profile: &str, server: &str) -> Vec<String> {
+        let profile: AgentProfile = toml::from_str(profile).unwrap();
+        validate_profile(&profile)
+            .into_iter()
+            .filter(|check| {
+                check.status == Status::Fail
+                    && check.name.starts_with(&format!("MCP server '{server}'"))
+            })
+            .map(|check| check.message)
+            .collect()
+    }
+
+    #[test]
+    fn stdio_mcp_servers_validate_their_command_and_env() {
+        let secrets = "[secrets]\nproject = \"p\"\nenvironment = \"e\"\n[secrets.GITHUB_TOKEN]\nenv = \"GH_TOKEN\"\n[personal_credentials.LINEAR]\n";
+        assert!(mcp_failures(
+            &format!("[mcp_servers.github]\ncommand = \"npx\"\nargs = [\"-y\", \"server-github\"]\nenv = {{ GITHUB_PERSONAL_ACCESS_TOKEN = {{ binding = \"GITHUB_TOKEN\" }}, LOG_LEVEL = \"info\", PORT = 3000 }}\ncwd = \"tools\"\nallow_tools = [\"get_issue\"]\n{secrets}"),
+            "github",
+        )
+        .is_empty());
+
+        let both = mcp_failures(
+            "[mcp_servers.x]\nurl = \"https://mcp.example.com/mcp\"\ncommand = \"npx\"\n",
+            "x",
+        );
+        assert!(both.iter().any(|m| m.contains("not both")), "{both:?}");
+        let neither = mcp_failures("[mcp_servers.x]\nallow_tools = [\"a\"]\n", "x");
+        assert!(
+            neither.iter().any(|m| m.contains("Set 'url'")),
+            "{neither:?}"
+        );
+
+        let failures = mcp_failures(
+            &format!("[mcp_servers.x]\ncommand = \" \"\nbinding = \"GITHUB_TOKEN\"\nheader = \"x-key\"\ncwd = \"../outside\"\nenv = {{ HTTPS_PROXY = \"http://evil\", STASHBASE_MCP_BROKER_TOKEN = \"t\", \"1BAD\" = \"x\", A = {{ binding = \"NOPE\" }}, B = {{ binding = \"LINEAR\" }} }}\n{secrets}"),
+            "x",
+        );
+        for expected in [
+            "Must name the program",
+            "'binding' applies to HTTP servers only",
+            "'header' applies to HTTP servers only",
+            "without '..'",
+            "HTTPS_PROXY is set by the Stashbase sandbox",
+            "STASHBASE_MCP_BROKER_TOKEN is set by the Stashbase sandbox",
+            "1BAD is not a valid environment variable name",
+            "binding 'NOPE' is not declared in [secrets]",
+            "'LINEAR' is a personal credential",
+        ] {
+            assert!(
+                failures.iter().any(|m| m.contains(expected)),
+                "missing {expected:?} in {failures:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn http_mcp_servers_cannot_use_the_stdio_host() {
+        let failures = mcp_failures(
+            "[mcp_servers.x]\nurl = \"https://stdio.mcp.stashbase.internal/x\"\n",
+            "x",
+        );
+        assert!(
+            failures
+                .iter()
+                .any(|m| m.contains("reserved for stdio servers")),
+            "{failures:?}"
+        );
     }
 
     #[test]

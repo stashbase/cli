@@ -374,6 +374,8 @@ fn force_disconnect(network_name: &str, container_name: &str) {
 /// daemon's own bookkeeping has caught up with the removal it already
 /// performed.
 pub(crate) fn remove_run_network(network: &DockerRunNetwork) -> Result<(), String> {
+    remove_mcp_server_containers(network);
+    let _ = std::fs::remove_file(mcp_broker_file(network));
     stop_container_if_running(&network.name);
     stop_container_if_running(&netns_holder_name(network));
 
@@ -1034,6 +1036,7 @@ pub(crate) fn docker_run_command(
     )?;
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
     append_agent_hook_shim_mount(&mut args, env_vars)?;
+    append_mcp_broker_mount(&mut args, network, env_vars)?;
 
     // A named Docker volume, not a bind mount of the real host home
     // directory, persists login/config state (e.g. Claude Code's
@@ -1944,9 +1947,76 @@ if [ "$#" -eq 2 ] && [ "$1" = agent ] && [ "$2" = hooks ]; then
   }
   exit 0
 fi
-echo "stashbase: only 'stashbase agent hooks' is available inside the agent sandbox." >&2
+if [ "$#" -eq 4 ] && [ "$1" = agent ] && [ "$2" = mcp ] && [ "$3" = connect ]; then
+  if ! command -v bash >/dev/null 2>&1; then
+    echo "stashbase: stdio MCP servers need bash in the sandbox image." >&2
+    exit 1
+  fi
+  exec bash /usr/local/lib/stashbase/mcp-connect "$4"
+fi
+echo "stashbase: only 'stashbase agent hooks' and 'stashbase agent mcp connect' are available inside the agent sandbox." >&2
 exit 1
 "#;
+
+/// `stashbase agent mcp connect <server>` inside the container, where there
+/// is no CLI: the same upgrade request the real command sends, then a byte
+/// pipe. It holds no policy; the proxy checks every message. Agents that
+/// clear their MCP servers' environment (Codex) find the broker in
+/// `MCP_BROKER_FILE`, which only this run's agent container has. Mounted at
+/// `MCP_CONNECT_SCRIPT_PATH` and run by `AGENT_HOOK_SHIM`.
+pub(crate) const MCP_CONNECT_SCRIPT: &str = r#"#!/usr/bin/env bash
+name=$1
+cr=$'\r'
+url=${STASHBASE_MCP_BROKER_URL:-}
+token=${STASHBASE_MCP_BROKER_TOKEN:-}
+if [ -z "$url" ] && [ -r /run/stashbase/mcp-broker ]; then
+  { read -r url; read -r token; } < /run/stashbase/mcp-broker
+fi
+if [ -z "$url" ] || [ -z "$token" ]; then
+  echo "agent mcp connect only works inside 'stashbase agent run' with a profile that declares [mcp_servers.$name] command" >&2
+  exit 1
+fi
+rest=${url#http://}
+hostport=${rest%%/*}
+path=/${rest#*/}
+exec 3<>"/dev/tcp/${hostport%:*}/${hostport##*:}" || {
+  echo "cannot reach the run's Agent Proxy at $hostport; has the run ended?" >&2
+  exit 1
+}
+printf 'GET %s/%s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nConnection: upgrade\r\nUpgrade: stashbase-mcp\r\n\r\n' \
+  "$path" "$name" "$hostport" "$token" >&3
+IFS= read -r status <&3
+case "$status" in
+  "HTTP/1.1 101"*) ;;
+  *)
+    message=$(timeout 2 cat <&3 | sed -n 's/.*"message":"\([^"]*\)".*/\1/p' | head -n 1)
+    [ -n "$message" ] || message="the run's MCP broker refused the connection (${status%"$cr"})"
+    echo "$message" >&2
+    exit 1
+    ;;
+esac
+while IFS= read -r line <&3; do
+  [ -z "${line%"$cr"}" ] && break
+done
+cat <&3 &
+reader=$!
+trap 'kill "$reader" 2>/dev/null' EXIT
+cat >&3
+# bash can't half-close the socket, so the broker doesn't learn that the
+# agent is done: let answers already on their way arrive, then hang up.
+{ sleep 5; kill "$reader" 2>/dev/null; } &
+wait "$reader"
+"#;
+
+const MCP_CONNECT_SCRIPT_PATH: &str = "/usr/local/lib/stashbase/mcp-connect";
+
+/// Where the agent container finds its run's MCP broker when its MCP
+/// servers start without the run's environment.
+const MCP_BROKER_FILE: &str = "/run/stashbase/mcp-broker";
+
+/// Labels a stdio MCP server's container with its run's network, so the run
+/// removes whatever is left of them at teardown.
+const MCP_SERVER_RUN_LABEL: &str = "stashbase.mcp-run";
 
 /// Mounts `AGENT_HOOK_SHIM` as `stashbase` on the container's PATH when the
 /// run serves the agent hook route.
@@ -1954,8 +2024,18 @@ fn append_agent_hook_shim_mount(
     args: &mut Vec<String>,
     env_vars: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    if !env_vars.contains_key(crate::handlers::run::proxy::AGENT_HOOK_URL_ENV) {
+    let mcp = env_vars.contains_key(crate::handlers::run::mcp_stdio::MCP_BROKER_URL_ENV);
+    if !env_vars.contains_key(crate::handlers::run::proxy::AGENT_HOOK_URL_ENV) && !mcp {
         return Ok(());
+    }
+    if mcp {
+        let script = std::env::temp_dir().join("stashbase-mcp-connect-v1");
+        std::fs::write(&script, MCP_CONNECT_SCRIPT)
+            .map_err(|error| format!("failed to write the MCP connect stand-in: {error}"))?;
+        args.extend([
+            "-v".to_owned(),
+            format!("{}:{MCP_CONNECT_SCRIPT_PATH}:ro", script.to_string_lossy()),
+        ]);
     }
     let path = std::env::temp_dir().join("stashbase-agent-hook-shim-v1");
     std::fs::write(&path, AGENT_HOOK_SHIM)
@@ -1972,6 +2052,116 @@ fn append_agent_hook_shim_mount(
         format!("{}:/usr/local/bin/stashbase:ro", path.to_string_lossy()),
     ]);
     Ok(())
+}
+
+/// Mounts the run's broker address and token, read-only, at
+/// `MCP_BROKER_FILE` in the agent container.
+fn append_mcp_broker_mount(
+    args: &mut Vec<String>,
+    network: &DockerRunNetwork,
+    env_vars: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    use crate::handlers::run::mcp_stdio::{MCP_BROKER_TOKEN_ENV, MCP_BROKER_URL_ENV};
+    let (Some(url), Some(token)) = (
+        env_vars.get(MCP_BROKER_URL_ENV),
+        env_vars.get(MCP_BROKER_TOKEN_ENV),
+    ) else {
+        return Ok(());
+    };
+    let path = mcp_broker_file(network);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    use std::io::Write;
+    options
+        .open(&path)
+        .and_then(|mut file| file.write_all(format!("{url}\n{token}\n").as_bytes()))
+        .map_err(|error| format!("failed to write the MCP broker address: {error}"))?;
+    args.extend([
+        "-v".to_owned(),
+        format!("{}:{MCP_BROKER_FILE}:ro", path.to_string_lossy()),
+    ]);
+    Ok(())
+}
+
+fn mcp_broker_file(network: &DockerRunNetwork) -> PathBuf {
+    std::env::temp_dir().join(format!("{}-mcp-broker", network.name))
+}
+
+/// How to start a stdio MCP server in its own container: the same image,
+/// mounts, limits and firewalled network as the agent, but a container the
+/// agent can't reach the pipes of. Returns the program, its arguments and
+/// the index of the container name, which each connection makes unique.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn docker_mcp_server_command(
+    server: &str,
+    command: &str,
+    server_args: &[String],
+    network: &DockerRunNetwork,
+    workdir: &Path,
+    git_mounts: Option<&GitMounts>,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    env_vars: &std::collections::HashMap<String, String>,
+    image: &str,
+    memory_limit: Option<&str>,
+    cpus_limit: Option<&str>,
+    isolated_paths: &[String],
+    extra_paths: &[super::extra_paths::ResolvedExtraPath],
+) -> Result<(String, Vec<String>, usize), String> {
+    let (program, mut args) = docker_run_command(
+        command,
+        network,
+        workdir,
+        git_mounts,
+        denied_read_paths,
+        denied_write_paths,
+        env_vars,
+        false,
+        image,
+        memory_limit,
+        cpus_limit,
+        isolated_paths,
+        extra_paths,
+    )?;
+    let name_index = args
+        .iter()
+        .position(|arg| arg == "--name")
+        .map(|index| index + 1)
+        .ok_or("docker run invocation has no --name")?;
+    args[name_index] = format!("{}-mcp-{server}", network.name);
+    args.splice(
+        1..1,
+        [
+            "--label".to_owned(),
+            format!("{MCP_SERVER_RUN_LABEL}={}", network.name),
+        ],
+    );
+    args.extend(server_args.iter().cloned());
+    Ok((program, args, name_index + 2))
+}
+
+/// Removes the run's stdio MCP server containers that are still there, such
+/// as those of connections open when the run ended.
+fn remove_mcp_server_containers(network: &DockerRunNetwork) {
+    let Ok(output) = std::process::Command::new("docker")
+        .args([
+            "ps",
+            "-aq",
+            "--filter",
+            &format!("label={MCP_SERVER_RUN_LABEL}={}", network.name),
+        ])
+        .output()
+    else {
+        return;
+    };
+    for id in String::from_utf8_lossy(&output.stdout).split_whitespace() {
+        stop_container_if_running(id);
+    }
 }
 
 fn is_nested_under(path: &str, ancestor: &str) -> bool {
@@ -3336,6 +3526,114 @@ mod tests {
         .unwrap();
         let name_index = args.iter().position(|arg| arg == "--name").unwrap();
         assert_eq!(args[name_index + 1], network.name);
+    }
+
+    #[test]
+    fn mcp_server_containers_are_named_labeled_and_run_the_server() {
+        let network = DockerRunNetwork {
+            name: "stashbase-agent-run-some-uuid".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let env =
+            std::collections::HashMap::from([("DEMO_SETTING".to_owned(), "hello".to_owned())]);
+        let (program, args, name_index) = docker_mcp_server_command(
+            "github",
+            "npx",
+            &["-y".to_owned(), "server-github".to_owned()],
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[],
+            &[],
+            &env,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(program, "docker");
+        assert_eq!(args[name_index - 1], "--name");
+        assert_eq!(args[name_index], format!("{}-mcp-github", network.name));
+        let label = args.iter().position(|arg| arg == "--label").unwrap();
+        assert_eq!(
+            args[label + 1],
+            format!("{MCP_SERVER_RUN_LABEL}={}", network.name)
+        );
+        assert!(args.contains(&"-i".to_owned()) && !args.contains(&"-t".to_owned()));
+        assert!(args.contains(&"DEMO_SETTING=hello".to_owned()));
+        assert!(args.contains(&format!("container:{}", netns_holder_name(&network))));
+        let image = args
+            .iter()
+            .position(|arg| arg == DEFAULT_SANDBOX_IMAGE)
+            .unwrap();
+        assert_eq!(args[image + 1..], ["npx", "-y", "server-github"]);
+    }
+
+    #[test]
+    fn the_agent_container_gets_the_mcp_stand_in_and_broker_file() {
+        use crate::handlers::run::mcp_stdio::{MCP_BROKER_TOKEN_ENV, MCP_BROKER_URL_ENV};
+        let network = DockerRunNetwork {
+            name: format!("stashbase-agent-run-test-{}", uuid::Uuid::new_v4()),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let env = std::collections::HashMap::from([
+            (
+                MCP_BROKER_URL_ENV.to_owned(),
+                "http://10.0.0.1:9/__stashbase/mcp".to_owned(),
+            ),
+            (MCP_BROKER_TOKEN_ENV.to_owned(), "t0k".to_owned()),
+        ]);
+        let (_, args) = docker_run_command(
+            "codex",
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[],
+            &[],
+            &env,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+            &[],
+        )
+        .unwrap();
+        let mounts = args
+            .windows(2)
+            .filter(|pair| pair[0] == "-v")
+            .map(|pair| pair[1].clone())
+            .collect::<Vec<_>>();
+        assert!(mounts
+            .iter()
+            .any(|mount| mount.ends_with(":/usr/local/bin/stashbase:ro")));
+        assert!(mounts
+            .iter()
+            .any(|mount| mount.ends_with(&format!(":{MCP_CONNECT_SCRIPT_PATH}:ro"))));
+        let broker = mounts
+            .iter()
+            .find(|mount| mount.ends_with(&format!(":{MCP_BROKER_FILE}:ro")))
+            .unwrap();
+        let host_path = broker.trim_end_matches(&format!(":{MCP_BROKER_FILE}:ro"));
+        assert_eq!(
+            std::fs::read_to_string(host_path).unwrap(),
+            "http://10.0.0.1:9/__stashbase/mcp\nt0k\n"
+        );
+        let _ = std::fs::remove_file(host_path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_stand_in_scripts_parse() {
+        for (shell, script) in [("sh", AGENT_HOOK_SHIM), ("bash", MCP_CONNECT_SCRIPT)] {
+            let status = std::process::Command::new(shell)
+                .args(["-n", "-c", script])
+                .status()
+                .unwrap();
+            assert!(status.success(), "{shell} rejects its stand-in");
+        }
     }
 
     #[test]

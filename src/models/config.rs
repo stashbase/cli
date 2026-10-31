@@ -189,8 +189,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            profile.mcp_servers["linear"].url,
-            "https://mcp.linear.app/mcp"
+            profile.mcp_servers["linear"].url.as_deref(),
+            Some("https://mcp.linear.app/mcp")
         );
         assert_eq!(
             profile.mcp_servers["linear"].allow_tools,

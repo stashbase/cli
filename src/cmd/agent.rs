@@ -243,14 +243,24 @@ pub struct AgentMcpCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentMcpSubcommand {
-    /// Inspect the tools exposed by a configured HTTP MCP server
+    /// Inspect the tools exposed by a configured MCP server
     Tools(AgentMcpToolsCommand),
-    /// Select and save the tools allowed for a configured HTTP MCP server
+    /// Select and save the tools allowed for a configured MCP server
     Configure(AgentMcpConfigureCommand),
     /// Check whether one MCP tool is allowed by the configured policy
     Check(AgentMcpCheckCommand),
     /// Verify configured MCP tool names against the server's tools/list response
     Verify(AgentMcpVerifyCommand),
+    /// Reach a profile's stdio MCP server from inside `agent run`; configure
+    /// your agent to start this command in place of the server
+    Connect(AgentMcpConnectCommand),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "agent mcp connect <SERVER>")]
+pub struct AgentMcpConnectCommand {
+    /// Named entry under [mcp_servers] with a `command`
+    pub server: String,
 }
 
 #[derive(Debug, Args)]

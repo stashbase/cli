@@ -95,35 +95,8 @@ pub async fn handle_agent_mcp_tools_command(
             })?,
     };
     let server = mcp_server(&profile, &command.server, json_format)?;
-    let url = mcp_url(server)?;
     let mut spinner = SpinnerGuard::new(!silent);
-    let inspection = if command.remote {
-        remote_proxied_client(&profile, server, api_key, json_format).await
-    } else {
-        proxied_client(&profile, server, api_key, json_format).await
-    };
-    let (_proxy, client, auth) = match inspection {
-        Ok(value) => value,
-        Err(error) => return Err(error),
-    };
-
-    let initialize = json!({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
-    });
-    let (initialize_response, session) = send_mcp(&client, &url, &auth, initialize, None).await?;
-    if let Some(error) = initialize_response.get("error") {
-        bail!("MCP initialize failed: {error}");
-    }
-    send_mcp_notification(
-        &client,
-        &url,
-        &auth,
-        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-        session.as_deref(),
-    )
-    .await?;
-    let tools = list_mcp_tools(&client, &url, &auth, session.as_deref()).await?;
+    let tools = fetch_mcp_tools(&profile, server, api_key, json_format, command.remote).await?;
     spinner.finish();
     let warnings = tool_rule_warnings(server, &tools);
     if let Some(name) = command.tool.as_deref() {
@@ -166,7 +139,8 @@ pub async fn handle_agent_mcp_tools_command(
                 &json!({
                     "schema_version": 1,
                     "server": command.server,
-                    "url": url,
+                    "url": server.url,
+                    "command": stdio_command_line(server),
                     "binding": server.binding,
                     "tools": rows,
                     "policy_hidden_tools": policy_hidden_tools,
@@ -178,8 +152,10 @@ pub async fn handle_agent_mcp_tools_command(
     } else {
         let paint = Paint::new();
         println!("MCP server: {}", command.server);
-        println!("Endpoint: {url}");
-        println!("Binding: {}", server.binding.as_deref().unwrap_or("none"));
+        println!("{}", endpoint_line(server));
+        if !server.is_stdio() {
+            println!("Binding: {}", server.binding.as_deref().unwrap_or("none"));
+        }
         let allowed = rows
             .iter()
             .filter(|row| row["allowed"].as_bool() == Some(true))
@@ -780,34 +756,8 @@ pub async fn handle_agent_mcp_configure_command(
 ) -> Result<()> {
     let (profile, profile_path) = load_mcp_profile_for_edit(&command)?;
     let server = mcp_server(&profile, &command.server, false)?.clone();
-    let url = mcp_url(&server)?;
     let mut spinner = SpinnerGuard::new(!silent);
-    let inspection = if command.remote {
-        remote_proxied_client(&profile, &server, api_key, false).await
-    } else {
-        proxied_client(&profile, &server, api_key, false).await
-    };
-    let (_proxy, client, auth) = match inspection {
-        Ok(value) => value,
-        Err(error) => return Err(error),
-    };
-    let initialize = json!({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
-    });
-    let (initialize_response, session) = send_mcp(&client, &url, &auth, initialize, None).await?;
-    if let Some(error) = initialize_response.get("error") {
-        bail!("MCP initialize failed: {error}");
-    }
-    send_mcp_notification(
-        &client,
-        &url,
-        &auth,
-        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-        session.as_deref(),
-    )
-    .await?;
-    let mut tools = list_mcp_tools(&client, &url, &auth, session.as_deref()).await?;
+    let mut tools = fetch_mcp_tools(&profile, &server, api_key, false, command.remote).await?;
     spinner.finish();
     tools.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
     let names = tools
@@ -820,7 +770,7 @@ pub async fn handle_agent_mcp_configure_command(
     }
 
     println!("MCP server: {}", command.server);
-    println!("Endpoint: {url}");
+    println!("{}", endpoint_line(&server));
     println!("Profile: {}", profile_path.display());
     println!();
     let current_allow_all = server.allow_tools.iter().any(|tool| tool == "*");
@@ -1059,34 +1009,8 @@ pub async fn handle_agent_mcp_verify_command(
             })?,
     };
     let server = mcp_server(&profile, &command.server, json_format)?;
-    let url = mcp_url(server)?;
     let mut spinner = SpinnerGuard::new(!silent);
-    let inspection = if command.remote {
-        remote_proxied_client(&profile, server, api_key, json_format).await
-    } else {
-        proxied_client(&profile, server, api_key, json_format).await
-    };
-    let (_proxy, client, auth) = match inspection {
-        Ok(value) => value,
-        Err(error) => return Err(error),
-    };
-    let initialize = json!({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
-    });
-    let (initialize_response, session) = send_mcp(&client, &url, &auth, initialize, None).await?;
-    if let Some(error) = initialize_response.get("error") {
-        bail!("MCP initialize failed: {error}");
-    }
-    send_mcp_notification(
-        &client,
-        &url,
-        &auth,
-        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-        session.as_deref(),
-    )
-    .await?;
-    let tools = list_mcp_tools(&client, &url, &auth, session.as_deref()).await?;
+    let tools = fetch_mcp_tools(&profile, server, api_key, json_format, command.remote).await?;
     spinner.finish();
     let available = tools
         .iter()
@@ -1115,7 +1039,8 @@ pub async fn handle_agent_mcp_verify_command(
         "schema_version": 1,
         "profile": command.profile,
         "server": command.server,
-        "url": url,
+        "url": server.url,
+        "command": stdio_command_line(server),
         "available_tools": available_tools,
         "configured_tools": configured_tools,
         "missing_tools": missing,
@@ -1144,8 +1069,30 @@ pub async fn handle_agent_mcp_verify_command(
     Ok(!report["valid"].as_bool().unwrap_or(false))
 }
 
+/// `Endpoint: <url>` for an HTTP server, `Command: <command line>` for stdio.
+fn endpoint_line(server: &AgentMcpServer) -> String {
+    match stdio_command_line(server) {
+        Some(command) => format!("Command: {command}"),
+        None => format!("Endpoint: {}", server.url.as_deref().unwrap_or_default()),
+    }
+}
+
+fn stdio_command_line(server: &AgentMcpServer) -> Option<String> {
+    let command = server.command.as_deref().filter(|_| server.is_stdio())?;
+    Some(
+        std::iter::once(command)
+            .chain(server.args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
 fn mcp_url(server: &AgentMcpServer) -> Result<String> {
-    let url = reqwest::Url::parse(&server.url).context("MCP server URL is invalid")?;
+    let url = server
+        .url
+        .as_deref()
+        .context("MCP server has no url; it is a stdio server")?;
+    let url = reqwest::Url::parse(url).context("MCP server URL is invalid")?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || url.fragment().is_some()
@@ -1231,6 +1178,7 @@ async fn proxied_client(
         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
         workspace_extra_paths: profile.workspace.extra_paths.clone(),
         config_env: Default::default(),
+        stdio_mcp_servers: Default::default(),
     };
     let proxy = Proxy::start_with_port(secrets, policy, None, None).await?;
     let proxy_url = proxy.child_env()["HTTPS_PROXY"].clone();
@@ -1409,6 +1357,7 @@ async fn remote_proxied_client(
         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
         workspace_extra_paths: profile.workspace.extra_paths.clone(),
         config_env: Default::default(),
+        stdio_mcp_servers: Default::default(),
     };
     let proxy = Proxy::start_remote_with_port(
         RemoteProxyConfig {
@@ -1577,12 +1526,274 @@ fn local_binding_value(file: Option<&str>, source_name: &str) -> Result<Option<S
     Ok(file_value)
 }
 
-async fn list_mcp_tools(
-    client: &reqwest::Client,
-    url: &str,
-    auth: &Option<(String, String)>,
-    session: Option<&str>,
+/// `initialize`, `notifications/initialized` and every page of `tools/list`,
+/// over the server's own transport.
+async fn fetch_mcp_tools(
+    profile: &AgentProfile,
+    server: &AgentMcpServer,
+    api_key: Option<&str>,
+    json_format: bool,
+    remote: bool,
 ) -> Result<Vec<Value>> {
+    let mut connection = McpConnection::open(profile, server, api_key, json_format, remote).await?;
+    let initialize = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
+    });
+    let initialize_response = connection.request(initialize).await?;
+    if let Some(error) = initialize_response.get("error") {
+        bail!("MCP initialize failed: {error}");
+    }
+    connection
+        .notify(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+        .await?;
+    let tools = list_mcp_tools(&mut connection).await;
+    connection.close().await;
+    tools
+}
+
+/// An inspection connection to an MCP server: HTTP through a short-lived
+/// Agent Proxy, or a stdio server started for the inspection.
+enum McpConnection {
+    Http {
+        _proxy: Box<Proxy>,
+        client: reqwest::Client,
+        url: String,
+        auth: Option<(String, String)>,
+        session: Option<String>,
+    },
+    Stdio(Box<StdioInspection>),
+}
+
+impl McpConnection {
+    async fn open(
+        profile: &AgentProfile,
+        server: &AgentMcpServer,
+        api_key: Option<&str>,
+        json_format: bool,
+        remote: bool,
+    ) -> Result<Self> {
+        if server.is_stdio() {
+            if remote {
+                bail!("stdio MCP servers run on this machine; inspect them without --remote");
+            }
+            return Ok(Self::Stdio(Box::new(
+                StdioInspection::start(profile, server).await?,
+            )));
+        }
+        let url = mcp_url(server)?;
+        let (proxy, client, auth) = if remote {
+            remote_proxied_client(profile, server, api_key, json_format).await?
+        } else {
+            proxied_client(profile, server, api_key, json_format).await?
+        };
+        Ok(Self::Http {
+            _proxy: Box::new(proxy),
+            client,
+            url,
+            auth,
+            session: None,
+        })
+    }
+
+    async fn request(&mut self, body: Value) -> Result<Value> {
+        match self {
+            Self::Http {
+                client,
+                url,
+                auth,
+                session,
+                ..
+            } => {
+                let (response, new_session) =
+                    send_mcp(client, url, auth, body, session.as_deref()).await?;
+                if session.is_none() {
+                    *session = new_session;
+                }
+                Ok(response)
+            }
+            Self::Stdio(stdio) => stdio.request(body).await,
+        }
+    }
+
+    async fn notify(&mut self, body: Value) -> Result<()> {
+        match self {
+            Self::Http {
+                client,
+                url,
+                auth,
+                session,
+                ..
+            } => send_mcp_notification(client, url, auth, body, session.as_deref()).await,
+            Self::Stdio(stdio) => stdio.send(&body).await,
+        }
+    }
+
+    async fn close(self) {
+        if let Self::Stdio(stdio) = self {
+            stdio.stop().await;
+        }
+    }
+}
+
+/// A stdio server started for `agent mcp tools`/`configure`/`verify`: in the
+/// current directory, with the profile's egress through a short-lived proxy
+/// and no secrets loaded, so a bound variable holds a placeholder that never
+/// resolves. Enough for `tools/list`, which servers answer without calling
+/// their API.
+struct StdioInspection {
+    _proxy: Proxy,
+    child: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    stdout: tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    stderr: tokio::task::JoinHandle<String>,
+}
+
+/// How long one inspection request may take: the first may include an
+/// `npx` download.
+const STDIO_INSPECTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+impl StdioInspection {
+    async fn start(profile: &AgentProfile, server: &AgentMcpServer) -> Result<Self> {
+        use crate::models::agent::AgentMcpEnvValue;
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+        let command = server
+            .command
+            .as_deref()
+            .context("MCP server has no command")?;
+        let policy = ProxyPolicy {
+            allowed_egress_hosts: profile
+                .egress_hosts
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            denied_hosts: profile
+                .deny_hosts
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            egress_hosts_configured: profile.egress_hosts.is_some(),
+            strict_deny: true,
+            ..ProxyPolicy::permissive()
+        };
+        let proxy = Proxy::start_with_port(HashMap::new(), policy, None, None).await?;
+        let mut env = proxy.child_env().clone();
+        for (name, value) in &profile.config_env {
+            env.entry(name.clone()).or_insert_with(|| value.value());
+        }
+        for (name, value) in &server.env {
+            let value = match value {
+                AgentMcpEnvValue::Plain(value) => value.to_string(),
+                AgentMcpEnvValue::Binding(binding) => {
+                    crate::handlers::run::proxy::placeholder_for(&binding.binding)
+                }
+            };
+            env.insert(name.clone(), value);
+        }
+        let cwd = std::env::current_dir()?;
+        let cwd = match &server.cwd {
+            Some(dir) => cwd.join(dir),
+            None => cwd,
+        };
+        let mut child = tokio::process::Command::new(command)
+            .args(&server.args)
+            .envs(&env)
+            .current_dir(cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .with_context(|| format!("failed to start MCP server command '{command}'"))?;
+        let stdin = child.stdin.take().context("server stdin is not piped")?;
+        let stdout =
+            tokio::io::BufReader::new(child.stdout.take().context("server stdout is not piped")?)
+                .lines();
+        let mut stderr_pipe = child.stderr.take().context("server stderr is not piped")?;
+        let stderr = tokio::spawn(async move {
+            let mut output = String::new();
+            let _ = stderr_pipe.read_to_string(&mut output).await;
+            output
+        });
+        Ok(Self {
+            _proxy: proxy,
+            child,
+            stdin,
+            stdout,
+            stderr,
+        })
+    }
+
+    async fn send(&mut self, body: &Value) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+        let mut line = serde_json::to_vec(body)?;
+        line.push(b'\n');
+        self.stdin.write_all(&line).await?;
+        self.stdin.flush().await?;
+        Ok(())
+    }
+
+    /// Sends `body` and returns the response with its id, skipping the
+    /// server's notifications and log lines.
+    async fn request(&mut self, body: Value) -> Result<Value> {
+        let id = body.get("id").cloned();
+        self.send(&body).await?;
+        let read = async {
+            while let Some(line) = self.stdout.next_line().await? {
+                let Ok(message) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if message.get("method").is_none() && message.get("id") == id.as_ref() {
+                    return Ok(Some(message));
+                }
+            }
+            Ok::<_, anyhow::Error>(None)
+        };
+        match tokio::time::timeout(STDIO_INSPECTION_TIMEOUT, read).await {
+            Ok(Ok(Some(message))) => Ok(message),
+            Ok(Ok(None)) => bail!("{}", self.exited_message().await),
+            Ok(Err(error)) => Err(error),
+            Err(_) => bail!(
+                "MCP server did not answer within {} seconds",
+                STDIO_INSPECTION_TIMEOUT.as_secs()
+            ),
+        }
+    }
+
+    /// Why the server stopped answering, with the end of its stderr.
+    async fn exited_message(&mut self) -> String {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), self.child.wait()).await;
+        let stderr = tokio::time::timeout(std::time::Duration::from_secs(1), &mut self.stderr)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        let tail = stderr.lines().rev().take(10).collect::<Vec<_>>();
+        if tail.is_empty() {
+            "MCP server exited before answering".to_owned()
+        } else {
+            format!(
+                "MCP server exited before answering:\n{}",
+                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+            )
+        }
+    }
+
+    async fn stop(mut self) {
+        drop(self.stdin);
+        if tokio::time::timeout(std::time::Duration::from_secs(2), self.child.wait())
+            .await
+            .is_err()
+        {
+            let _ = self.child.kill().await;
+        }
+        self.stderr.abort();
+    }
+}
+
+async fn list_mcp_tools(connection: &mut McpConnection) -> Result<Vec<Value>> {
     let mut tools = Vec::new();
     let mut cursor = None;
     let mut seen_cursors = HashSet::new();
@@ -1598,7 +1809,7 @@ async fn list_mcp_tools(
             "method": "tools/list",
             "params": params
         });
-        let (response, _) = send_mcp(client, url, auth, request, session).await?;
+        let response = connection.request(request).await?;
         let (mut page_tools, next_cursor) = mcp_tools_page(&response)?;
         tools.append(&mut page_tools);
 
@@ -1812,7 +2023,11 @@ mod tests {
 
     fn server(allow_tools: &[&str], deny_tools: &[&str]) -> AgentMcpServer {
         AgentMcpServer {
-            url: "https://mcp.example.com/mcp".to_owned(),
+            url: Some("https://mcp.example.com/mcp".to_owned()),
+            command: None,
+            args: Vec::new(),
+            env: Default::default(),
+            cwd: None,
             binding: None,
             header: None,
             value_template: None,
