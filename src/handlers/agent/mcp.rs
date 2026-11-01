@@ -1637,7 +1637,8 @@ impl McpConnection {
 }
 
 /// A stdio server started for `agent mcp tools`/`configure`/`verify`: in the
-/// current directory, with the profile's egress through a short-lived proxy
+/// current directory, under the native agent sandbox with the profile's
+/// filesystem rules, with the profile's egress through a short-lived proxy
 /// and no secrets loaded, so a bound variable holds a placeholder that never
 /// resolves. Enough for `tools/list`, which servers answer without calling
 /// their API.
@@ -1697,10 +1698,30 @@ impl StdioInspection {
             Some(dir) => cwd.join(dir),
             None => cwd,
         };
-        let mut child = tokio::process::Command::new(command)
-            .args(&server.args)
-            .envs(&env)
-            .current_dir(cwd)
+        // The same launch as `agent run`: the agent's sandbox, with network
+        // only through the short-lived proxy above.
+        let (program, args, env_removals) =
+            crate::handlers::run::subprocess::native_sandboxed_launch(
+                command,
+                &server.args,
+                true,
+                false,
+                &env,
+                &[],
+                true,
+                &profile.filesystem.deny_read,
+                &profile.filesystem.deny_write,
+                &cwd,
+                &[],
+            )
+            .with_context(|| format!("failed to sandbox MCP server command '{command}'"))?;
+        let mut launch = tokio::process::Command::new(&program);
+        launch.args(&args).envs(&env);
+        for name in &env_removals {
+            launch.env_remove(name);
+        }
+        let mut child = launch
+            .current_dir(&cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

@@ -18,7 +18,6 @@ use serde_json::Value;
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::mpsc,
 };
 
 use super::proxy::{authorize_mcp_request, filter_mcp_tools_list_response, McpDenial, ProxyPolicy};
@@ -332,9 +331,9 @@ where
     let mut client_lines = BufReader::new(client_read);
     let mut server_lines = BufReader::new(server_out);
     let mut filter = LineFilter::new(policy, name);
-    // Both directions write to the agent; refusals jump the queue only in
-    // the sense that they're written as soon as they're decided.
-    let (to_client, mut to_client_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    // Messages to the agent are written as soon as they're decided, nothing
+    // is queued: a server that writes faster than the agent reads waits on
+    // its own stdout.
     let mut client_buffer = Vec::new();
     let mut server_buffer = Vec::new();
     let mut client_open = true;
@@ -387,7 +386,7 @@ where
                             RelayEvent::ToolRefused { tool: tool.as_deref(), denial: &denial },
                             started.elapsed(),
                         );
-                        let _ = to_client.send(reply);
+                        write_message(&mut client_write, &reply).await?;
                     }
                 }
             }
@@ -396,7 +395,7 @@ where
                     // Requests the server never answered would otherwise
                     // leave the agent waiting until its own timeout.
                     for id in unanswered.drain() {
-                        let _ = to_client.send(exited_reply(&id, name, stderr_log));
+                        write_message(&mut client_write, &exited_reply(&id, name, stderr_log)).await?;
                     }
                     break;
                 }
@@ -405,27 +404,24 @@ where
                     if let Some(id) = response_id(line) {
                         unanswered.remove(&id);
                     }
-                    let _ = to_client.send(filter.server_line(line));
+                    let message = filter.server_line(line);
+                    write_message(&mut client_write, &message).await?;
                     if !client_open && unanswered.is_empty() {
                         break;
                     }
                 }
             }
-            Some(mut message) = to_client_rx.recv() => {
-                message.push(b'\n');
-                client_write.write_all(&message).await?;
-                client_write.flush().await?;
-            }
             () = &mut drain => break,
         }
     }
-    // Deliver whatever was decided before the loop ended.
-    to_client_rx.close();
-    while let Ok(mut message) = to_client_rx.try_recv() {
-        message.push(b'\n');
-        client_write.write_all(&message).await?;
-    }
     let _ = client_write.shutdown().await;
+    Ok(())
+}
+
+async fn write_message<W: AsyncWrite + Unpin>(writer: &mut W, message: &[u8]) -> Result<()> {
+    writer.write_all(message).await?;
+    writer.write_all(b"\n").await?;
+    writer.flush().await?;
     Ok(())
 }
 
