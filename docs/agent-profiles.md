@@ -333,6 +333,8 @@ With `--remote`, servers run on this machine and their HTTP calls go through the
 
 `stashbase agent mcp tools`, `configure` and `verify` start the server the way `agent run` would, in the current directory, to list its tools: under the native sandbox, or in a container for a Docker profile, with the profile's egress and no secrets loaded.
 
+Examples: [examples/github-stdio.toml](./agent-profiles/examples/github-stdio.toml) (read-only) and [examples/github-create-private-repo.toml](./agent-profiles/examples/github-create-private-repo.toml) (reads, plus private, empty repositories, enforced on both the tool call and the GitHub request).
+
 ### Argument conditions
 
 See [request-conditions.md](./agent-profiles/request-conditions.md) for the full guide, shared with HTTP body conditions.

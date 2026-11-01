@@ -1,0 +1,65 @@
+# GitHub's stdio MCP server: read, and create private, empty repositories only.
+# Rules on both layers: the tool rule checks the MCP call's arguments, the
+# credential rule checks the request the server sends to GitHub, so a call
+# that skips the tool (the agent's own curl or gh) can't create anything else.
+#   cp docs/agent-profiles/examples/github-create-private-repo.toml .stashbase/agents/
+#   stashbase agent mcp tools --profile github-create-private-repo --server github --tool create_repository
+#   claude mcp add github -- stashbase agent mcp connect github
+#   stashbase agent run --profile github-create-private-repo -- claude
+#
+# The token needs permission to create repositories (fine-grained: Administration
+# write; classic: repo scope). Argument names come from the server: check them
+# with `agent mcp tools --tool create_repository`, since a misspelled field
+# never matches.
+egress_hosts = ["api.anthropic.com", "platform.claude.com", "registry.npmjs.org"]
+
+[secrets]
+project = "my-project"
+environment = "development"
+
+[secrets.GITHUB_TOKEN]
+env = "GH_TOKEN"
+
+# Read anything.
+[[secrets.GITHUB_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["*"]
+
+# Create a repository: private, without auto_init, nothing but a name and
+# description. Separate rules are alternatives: auto_init missing or false.
+[[secrets.GITHUB_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["POST"]
+paths = ["/user/repos"]
+body = { private = true, auto_init = { absent = true } }
+allow_fields = ["name", "description"]
+
+[[secrets.GITHUB_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["POST"]
+paths = ["/user/repos"]
+body = { private = true, auto_init = false }
+allow_fields = ["name", "description"]
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = { binding = "GITHUB_TOKEN" } }
+allow_tools = ["get_file_contents", "search_repositories", "list_issues", "get_issue", "list_commits"]
+
+# create_repository: private, without autoInit (no README), missing or false.
+[[mcp_servers.github.tool_rules]]
+effect = "allow"
+tools = ["create_repository"]
+arguments = { private = true, autoInit = { absent = true } }
+allow_fields = ["name", "description"]
+
+[[mcp_servers.github.tool_rules]]
+effect = "allow"
+tools = ["create_repository"]
+arguments = { private = true, autoInit = false }
+allow_fields = ["name", "description"]
