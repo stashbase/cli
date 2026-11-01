@@ -1,4 +1,5 @@
 pub mod allow;
+pub mod connect;
 pub mod docker;
 pub mod doctor;
 pub mod env_check;

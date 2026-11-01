@@ -26,6 +26,76 @@ pub struct LocalAgentSession {
     revoked: bool,
 }
 
+/// Where `stashbase agent mcp connect` reaches a run's stdio MCP servers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpBrokerEndpoint {
+    pub url: String,
+    pub token: String,
+}
+
+/// A run's MCP broker, recorded for agents that start MCP servers without
+/// the run's environment (Codex clears it), keyed by the run's pid.
+#[derive(Debug, Serialize, Deserialize)]
+struct McpBrokerRecord {
+    process_id: u32,
+    /// Unix seconds; the run's process must have started by then.
+    registered_at: i64,
+    #[serde(flatten)]
+    endpoint: McpBrokerEndpoint,
+}
+
+/// Keeps a run's broker record for as long as the run lasts.
+#[derive(Debug)]
+pub struct McpBrokerRegistration(PathBuf);
+
+impl McpBrokerRegistration {
+    pub fn register(endpoint: McpBrokerEndpoint) -> Result<Self> {
+        let directory =
+            mcp_broker_directory().context("cannot locate the Stashbase config directory")?;
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&directory)?;
+        let record = McpBrokerRecord {
+            process_id: std::process::id(),
+            registered_at: Utc::now().timestamp(),
+            endpoint,
+        };
+        let path = directory.join(format!("{}.json", record.process_id));
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&path)?;
+        file.write_all(&serde_json::to_vec(&record)?)?;
+        file.sync_all()?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for McpBrokerRegistration {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// Resolved without creating anything: the agent's MCP server process may
+/// not write here (Codex confines the servers it starts).
+fn mcp_broker_directory() -> Option<PathBuf> {
+    Some(
+        directories::ProjectDirs::from("", "", "stashbase")?
+            .config_dir()
+            .join("mcp-brokers"),
+    )
+}
+
 #[derive(Debug)]
 pub struct LocalAgentSessionGuard(PathBuf);
 
@@ -112,6 +182,112 @@ pub fn list_local_sessions() -> Result<Vec<LocalAgentSession>> {
     }
     sessions.sort_by(|a, b| a.started_at.cmp(&b.started_at));
     Ok(sessions)
+}
+
+/// The MCP broker of the run this process was started under: the nearest
+/// ancestor process that registered one. Reads the process table directly,
+/// since the agent sandbox doesn't allow running `ps`. The error says what
+/// was looked at, since the agent only logs it.
+pub fn mcp_broker_for_ancestors() -> std::result::Result<McpBrokerEndpoint, String> {
+    let directory = mcp_broker_directory().ok_or("cannot locate the Stashbase config directory")?;
+    let records = fs::read_dir(&directory)
+        .map_err(|error| {
+            format!(
+                "no run has stdio MCP servers ({}: {error})",
+                directory.display()
+            )
+        })?
+        .filter_map(|entry| fs::read(entry.ok()?.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<McpBrokerRecord>(&bytes).ok())
+        .collect::<Vec<_>>();
+    let runs = records
+        .iter()
+        .map(|record| record.process_id.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut chain = vec![std::process::id().to_string()];
+    let mut pid = std::process::id();
+    // Deep enough for agent → shell → npx-style wrappers, short enough that
+    // a broken process table can't loop.
+    for _ in 0..32 {
+        let Some((parent, _)) = process_info(pid) else {
+            chain.push("?".to_owned());
+            break;
+        };
+        pid = parent;
+        chain.push(pid.to_string());
+        if pid <= 1 {
+            break;
+        }
+        let Some(record) = records.iter().find(|record| record.process_id == pid) else {
+            continue;
+        };
+        // The run registered after it started. A process that started later
+        // only reuses the pid of one that has exited, and must not be handed
+        // that run's broker.
+        return match process_info(pid) {
+            Some((_, started)) if started <= record.registered_at => Ok(record.endpoint.clone()),
+            started => Err(format!(
+                "process {pid} reuses the pid of an ended run (started {:?}, registered {})",
+                started.map(|(_, started)| started),
+                record.registered_at
+            )),
+        };
+    }
+    Err(format!(
+        "no ancestor of this process is a run with stdio MCP servers (ancestors: {}; runs: {})",
+        chain.join(" <- "),
+        if runs.is_empty() { "none" } else { &runs }
+    ))
+}
+
+/// A process's parent pid and start time in Unix seconds.
+#[cfg(target_os = "macos")]
+fn process_info(pid: u32) -> Option<(u32, i64)> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if written != size {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    Some((info.pbi_ppid, info.pbi_start_tvsec as i64))
+}
+
+/// A process's parent pid and start time in Unix seconds.
+#[cfg(target_os = "linux")]
+fn process_info(pid: u32) -> Option<(u32, i64)> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The command name is in parentheses and may contain spaces; the fields
+    // after it are space-separated: state, ppid, ..., starttime (22nd).
+    let fields = stat
+        .get(stat.rfind(')')? + 1..)?
+        .split_whitespace()
+        .collect::<Vec<_>>();
+    let parent = fields.get(1)?.parse().ok()?;
+    let ticks: i64 = fields.get(19)?.parse().ok()?;
+    let boot = fs::read_to_string("/proc/stat")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("btime "))?
+        .trim()
+        .parse::<i64>()
+        .ok()?;
+    let per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    (per_second > 0).then(|| (parent, boot + ticks / per_second))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn process_info(_pid: u32) -> Option<(u32, i64)> {
+    None
 }
 
 pub fn revoke_local_session(session_id: &str) -> Result<bool> {
@@ -220,6 +396,16 @@ mod tests {
         is_valid_agent_session_id, process_start_time, should_confirm_bulk_revoke,
         validate_bulk_scope, AgentSessionRow,
     };
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn process_info_reads_the_parent_and_a_start_time_no_later_than_now() {
+        let (parent, started) = super::process_info(std::process::id()).unwrap();
+        assert_eq!(parent, std::os::unix::process::parent_id());
+        let now = chrono::Utc::now().timestamp();
+        assert!(started > 0 && started <= now, "{started} vs {now}");
+        assert!(super::process_info(parent).is_some());
+    }
 
     #[test]
     fn process_identity_is_stable_for_the_current_process() {

@@ -322,8 +322,71 @@ pub(crate) fn compiled_mcp_rules(
     rules
 }
 
+/// The profile's stdio servers as the local run starts them. A `{ binding }`
+/// value names the binding's variable in the agent's environment, which holds
+/// its placeholder.
+fn stdio_mcp_servers(
+    profile: &crate::models::agent::AgentProfile,
+) -> std::collections::BTreeMap<String, crate::handlers::run::mcp_stdio::StdioMcpServerConfig> {
+    use crate::handlers::run::mcp_stdio::{StdioEnvValue, StdioMcpServerConfig};
+    use crate::models::agent::AgentMcpEnvValue;
+    profile
+        .mcp_servers
+        .iter()
+        .filter_map(|(name, server)| {
+            let command = server.command.clone().filter(|_| server.is_stdio())?;
+            let env = server
+                .env
+                .iter()
+                .map(|(key, value)| {
+                    let value = match value {
+                        AgentMcpEnvValue::Plain(value) => StdioEnvValue::Plain(value.to_string()),
+                        AgentMcpEnvValue::Binding(binding) => StdioEnvValue::FromChildEnv(
+                            profile
+                                .secrets
+                                .bindings
+                                .get(&binding.binding)
+                                .map(|secret| secret_child_name(&binding.binding, secret, false))
+                                .unwrap_or_else(|| binding.binding.clone()),
+                        ),
+                    };
+                    (key.clone(), value)
+                })
+                .collect();
+            Some((
+                name.clone(),
+                StdioMcpServerConfig {
+                    command,
+                    args: server.args.clone(),
+                    env,
+                    cwd: server.cwd.clone(),
+                },
+            ))
+        })
+        .collect()
+}
+
+/// Tool rules of stdio servers, under the reserved host the local proxy's MCP
+/// broker checks them against. Remote sessions never receive these: stdio
+/// servers run on this machine only.
+pub(crate) fn compiled_stdio_mcp_rules(
+    profile: &crate::models::agent::AgentProfile,
+) -> Vec<crate::models::agent::AgentMcpRule> {
+    let mut rules = Vec::new();
+    for (name, server) in &profile.mcp_servers {
+        if server.is_stdio() {
+            rules.extend(crate::handlers::agent::mcp::server_mcp_rules(
+                server,
+                crate::models::agent::STDIO_MCP_HOST,
+                &crate::handlers::run::mcp_stdio::rule_path(name),
+            ));
+        }
+    }
+    rules
+}
+
 fn mcp_server_endpoint(server: &crate::models::agent::AgentMcpServer) -> Option<(String, String)> {
-    let url = reqwest::Url::parse(&server.url).ok()?;
+    let url = reqwest::Url::parse(server.url.as_deref()?).ok()?;
     Some((url.host_str()?.to_owned(), url.path().to_owned()))
 }
 
@@ -395,6 +458,20 @@ pub async fn handle_cli(args: Cli) -> Exit {
     }) = args.entity_type
     {
         return print_error(handle_telemetry_command(cmd.subcommand, args.raw));
+    }
+
+    // Runs inside the agent's sandbox with no config or API key, and its
+    // stdout is the MCP channel: nothing else may run or print first.
+    if let EntityType::Agent(crate::cmd::agent::AgentCommand {
+        subcommand:
+            AgentSubcommand::Mcp(crate::cmd::agent::AgentMcpCommand {
+                subcommand: crate::cmd::agent::AgentMcpSubcommand::Connect(cmd),
+            }),
+    }) = args.entity_type
+    {
+        return print_error(
+            crate::handlers::agent::connect::handle_agent_mcp_connect_command(cmd).await,
+        );
     }
 
     if let EntityType::Doctor(cmd) = args.entity_type {
@@ -690,6 +767,11 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
+                    }
+                    crate::cmd::agent::AgentMcpSubcommand::Connect(command) => {
+                        crate::handlers::agent::connect::handle_agent_mcp_connect_command(command)
+                            .await
+                            .into_exit()
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Verify(command) => {
                         match crate::handlers::agent::mcp::handle_agent_mcp_verify_command(
@@ -1036,7 +1118,10 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         allow_network_listeners: profile.allow_network_listeners,
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
-                        mcp_rules: compiled_mcp_rules(&profile),
+                        mcp_rules: compiled_mcp_rules(&profile)
+                            .into_iter()
+                            .chain(compiled_stdio_mcp_rules(&profile))
+                            .collect(),
                         backend: profile.sandbox.backend,
                         sandbox_image: profile.sandbox.image.clone(),
                         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
@@ -1051,6 +1136,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             .iter()
                             .map(|(name, value)| (name.clone(), value.value()))
                             .collect(),
+                        stdio_mcp_servers: stdio_mcp_servers(&profile),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = profile_source

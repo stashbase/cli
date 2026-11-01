@@ -3,6 +3,7 @@ pub mod entry;
 pub mod extra_paths;
 pub mod format;
 pub mod fs_rules;
+pub mod mcp_stdio;
 pub mod proxy;
 pub mod routing;
 pub mod scan_sandbox;

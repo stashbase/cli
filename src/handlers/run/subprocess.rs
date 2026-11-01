@@ -276,6 +276,56 @@ pub async fn run_command_with_filesystem_policy_and_network(
     .await
 }
 
+/// How to start a process the run launches beside the agent, such as a stdio
+/// MCP server, under the same native sandbox and environment rules as the
+/// agent: the launcher program and arguments, and the inherited variables to
+/// remove. `env_vars` must be the process's full environment additions, as
+/// the macOS profile reads the proxy port from them.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn native_sandboxed_launch(
+    command: &str,
+    args: &[String],
+    sandbox: bool,
+    allow_network_listeners: bool,
+    env_vars: &HashMap<String, String>,
+    env_removals: &[String],
+    restrict_stashbase_credentials: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    current_dir: &Path,
+    extra_write_roots: &[PathBuf],
+) -> Result<(String, Vec<String>, Vec<String>)> {
+    let (program, mut launcher_args) = sandbox_command_with_filesystem_policy(
+        command,
+        sandbox,
+        allow_network_listeners,
+        env_vars,
+        denied_read_paths,
+        denied_write_paths,
+        CodexSandboxBoundary::FullAccess,
+        current_dir,
+        extra_write_roots,
+    )?;
+    launcher_args.extend(args.iter().cloned());
+    let mut removals = env_removals.to_vec();
+    if restrict_stashbase_credentials {
+        removals.extend(
+            RESTRICTED_CHILD_ENV_REMOVALS
+                .iter()
+                .map(|name| (*name).to_owned()),
+        );
+    }
+    // Always proxy mode: the process reaches the network only through the
+    // run's proxy, whose variables are in `env_vars`.
+    removals.extend(
+        PROXY_CHILD_ENV_REMOVALS
+            .iter()
+            .map(|name| (*name).to_owned()),
+    );
+    removals.retain(|name| !env_vars.contains_key(name));
+    Ok((program, launcher_args, removals))
+}
+
 /// Starts `expression`, calls `on_launched` once the child process exists,
 /// then waits for it. Equivalent to `expression.run()`, except that it tells
 /// the caller when the spawn has actually succeeded, so a failure to start

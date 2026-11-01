@@ -1,0 +1,36 @@
+# GitHub's stdio MCP server, read-only ([mcp_servers.*] with command).
+# The run starts the server; the agent reaches it through `stashbase agent mcp connect`.
+#   cp docs/agent-profiles/examples/github-stdio.toml .stashbase/agents/
+#   stashbase agent validate --profile github-stdio
+#   stashbase agent mcp tools --profile github-stdio --server github
+#   claude mcp add github -- stashbase agent mcp connect github
+#   stashbase agent run --profile github-stdio -- claude
+#
+# The server gets only the GITHUB_TOKEN placeholder in its environment. The
+# proxy injects the real token on its calls to api.github.com, and only for
+# GET requests, so a write fails even through the agent's own `gh` or curl.
+#
+# For the Docker sandbox, add `[sandbox] backend = "docker"` and register the
+# server inside the sandbox (`stashbase agent docker shell`); the default
+# image has npx.
+egress_hosts = ["api.anthropic.com", "platform.claude.com", "registry.npmjs.org"]
+
+[secrets]
+project = "my-project"
+environment = "development"
+
+[secrets.GITHUB_TOKEN]
+env = "GH_TOKEN"
+
+[[secrets.GITHUB_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["*"]
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = { binding = "GITHUB_TOKEN" } }
+# Read tools only; create_issue, push_files and the rest stay hidden.
+allow_tools = ["get_file_contents", "search_repositories", "list_issues", "get_issue", "list_commits"]

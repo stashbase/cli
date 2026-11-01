@@ -193,7 +193,48 @@ impl AgentMcpToolRule {
     }
 }
 
+/// A stdio server's `env` value: a plain scalar, or `{ binding = "NAME" }`
+/// for that `[secrets]` binding's placeholder. Real values never reach the
+/// server; the proxy swaps the placeholder on its outbound HTTP calls.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentMcpEnvValue {
+    Plain(AgentEnvScalar),
+    Binding(AgentMcpEnvBinding),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentMcpEnvBinding {
+    pub binding: String,
+}
+
+/// How the agent reaches an MCP server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentMcpTransport<'a> {
+    Http(&'a str),
+    Stdio(&'a str),
+}
+
+/// The host stdio servers' tool rules are compiled under. The proxy refuses
+/// real connections to it, so it only ever names the broker's servers.
+pub const STDIO_MCP_HOST: &str = "stdio.mcp.stashbase.internal";
+
 impl AgentMcpServer {
+    /// `None` when the server sets both `url` and `command`, or neither;
+    /// validation reports which.
+    pub fn transport(&self) -> Option<AgentMcpTransport<'_>> {
+        match (self.url.as_deref(), self.command.as_deref()) {
+            (Some(url), None) => Some(AgentMcpTransport::Http(url)),
+            (None, Some(command)) => Some(AgentMcpTransport::Stdio(command)),
+            _ => None,
+        }
+    }
+
+    pub fn is_stdio(&self) -> bool {
+        matches!(self.transport(), Some(AgentMcpTransport::Stdio(_)))
+    }
+
     /// Conditioned allow tool rules that an unconditional allow makes moot.
     pub fn shadowed_tool_conditions(&self) -> Vec<(usize, String)> {
         shadowed_tool_conditions(&self.allow_tools, &self.tool_rules)
@@ -280,11 +321,25 @@ pub struct AgentNumberRange {
 
 /// User-facing MCP server policy. The endpoint and binding association are
 /// declared once, without mixing MCP authorization into HTTP credential rules.
+/// A server is either HTTP (`url`) or stdio (`command`), never both.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentMcpServer {
     /// The single Streamable HTTP endpoint for this MCP server.
-    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The program a stdio server runs. `agent run` starts it, not the agent,
+    /// and the agent reaches it through `stashbase agent mcp connect <name>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    /// Variables set for a stdio server on top of the agent's environment.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, AgentMcpEnvValue>,
+    /// Working directory of a stdio server, relative to the run's workdir.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     #[serde(default)]
     /// Optional name from `[secrets]` or `[personal_credentials]`.
     /// `credential` remains accepted as a legacy input alias.
@@ -533,6 +588,39 @@ pub enum AgentHttpRuleEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_servers_parse_as_http_or_stdio() {
+        let http: AgentMcpServer =
+            toml::from_str("url = \"https://mcp.example.com/mcp\"\n").unwrap();
+        assert_eq!(
+            http.transport(),
+            Some(AgentMcpTransport::Http("https://mcp.example.com/mcp"))
+        );
+        let stdio: AgentMcpServer = toml::from_str(
+            "command = \"npx\"\nargs = [\"-y\", \"server\"]\nenv = { TOKEN = { binding = \"GH\" }, LEVEL = \"info\", PORT = 3000 }\n",
+        )
+        .unwrap();
+        assert_eq!(stdio.transport(), Some(AgentMcpTransport::Stdio("npx")));
+        assert_eq!(stdio.args, ["-y", "server"]);
+        assert_eq!(
+            stdio.env["TOKEN"],
+            AgentMcpEnvValue::Binding(AgentMcpEnvBinding {
+                binding: "GH".to_owned()
+            })
+        );
+        assert_eq!(
+            stdio.env["PORT"],
+            AgentMcpEnvValue::Plain(AgentEnvScalar::Integer(3000))
+        );
+        let both: AgentMcpServer =
+            toml::from_str("url = \"https://x/mcp\"\ncommand = \"npx\"\n").unwrap();
+        assert_eq!(both.transport(), None);
+        assert!(toml::from_str::<AgentMcpServer>(
+            "command = \"npx\"\nenv = { T = { secret = \"X\" } }\n"
+        )
+        .is_err());
+    }
 
     #[test]
     fn unconditional_allows_shadow_conditioned_tool_rules() {
