@@ -176,7 +176,7 @@ pub(crate) fn shell_quote(value: &str) -> String {
 /// outright since there's no registry to auto-pull it from. This ensures
 /// both, skipping the duplicate prompt/build when the agent's own source
 /// already *is* the default.
-fn ensure_docker_images_available(
+pub(crate) fn ensure_docker_images_available(
     agent_image_source: &super::docker_sandbox::AgentImageSource,
     silent: bool,
 ) -> anyhow::Result<String> {

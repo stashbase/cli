@@ -1644,6 +1644,8 @@ impl McpConnection {
 /// their API.
 struct StdioInspection {
     _proxy: Proxy,
+    /// Docker profiles: the inspection's network, removed on drop.
+    _network: Option<InspectionNetwork>,
     child: tokio::process::Child,
     stdin: tokio::process::ChildStdin,
     stdout: tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
@@ -1679,8 +1681,48 @@ impl StdioInspection {
             strict_deny: true,
             ..ProxyPolicy::permissive()
         };
-        let proxy = Proxy::start_with_port(HashMap::new(), policy, None, None).await?;
-        let mut env = proxy.child_env().clone();
+        use crate::handlers::run::docker_sandbox as docker;
+        let docker_profile =
+            profile.sandbox.backend == crate::models::agent::SandboxBackend::Docker;
+        // Docker profiles: the same per-run network, firewall and proxy
+        // binding as `agent run`, and the server in a container of its own.
+        let (network, image) = if docker_profile {
+            let image = crate::handlers::run::entry::ensure_docker_images_available(
+                &docker::AgentImageSource::from_profile(
+                    profile.sandbox.image.as_deref(),
+                    profile.sandbox.dockerfile.as_deref(),
+                ),
+                true,
+            )?;
+            let network = docker::create_run_network(None).map_err(|error| {
+                anyhow::anyhow!("failed to create Docker sandbox network: {error}")
+            })?;
+            (Some(InspectionNetwork(network)), image)
+        } else {
+            (None, String::new())
+        };
+        let proxy = match &network {
+            Some(network) => {
+                Proxy::start_with_hook_and_bind_host(
+                    HashMap::new(),
+                    policy,
+                    None,
+                    None,
+                    None,
+                    &docker::proxy_bind_host(&network.0),
+                )
+                .await?
+            }
+            None => Proxy::start_with_port(HashMap::new(), policy, None, None).await?,
+        };
+        let mut env = match &network {
+            Some(network) => docker::rewrite_proxy_urls_for_container(
+                proxy.child_env(),
+                &docker::proxy_bind_host(&network.0),
+                &docker::proxy_container_host(&network.0),
+            ),
+            None => proxy.child_env().clone(),
+        };
         for (name, value) in &profile.config_env {
             env.entry(name.clone()).or_insert_with(|| value.value());
         }
@@ -1698,10 +1740,55 @@ impl StdioInspection {
             Some(dir) => cwd.join(dir),
             None => cwd,
         };
+        if let Some(network) = &network {
+            if let Some(ip) = docker::start_netns_holder(&network.0, &env).map_err(|error| {
+                anyhow::anyhow!("failed to start Docker sandbox network namespace holder: {error}")
+            })? {
+                env = docker::rewrite_proxy_urls_for_container(
+                    &env,
+                    &docker::proxy_container_host(&network.0),
+                    &ip,
+                );
+            }
+        }
         // The same launch as `agent run`: the agent's sandbox, with network
         // only through the short-lived proxy above.
-        let (program, args, env_removals) =
-            crate::handlers::run::subprocess::native_sandboxed_launch(
+        let (program, args, env_removals) = if let Some(network) = &network {
+            let workdir = std::env::current_dir()?;
+            let (program, mut args, name_index) = docker::docker_mcp_server_command(
+                "inspect",
+                command,
+                &server.args,
+                &network.0,
+                &workdir,
+                None,
+                &profile.filesystem.deny_read,
+                &profile.filesystem.deny_write,
+                &env,
+                &image,
+                profile.sandbox.memory.as_deref(),
+                profile.sandbox.cpus.as_deref(),
+                &profile.sandbox.isolated_paths,
+                &[],
+            )
+            .map_err(|error| {
+                anyhow::anyhow!("failed to build the MCP server container: {error}")
+            })?;
+            if server.cwd.is_some() {
+                if let Some(index) = args.iter().position(|arg| arg == "-w") {
+                    args[index + 1] = cwd.to_string_lossy().into_owned();
+                }
+            }
+            args[name_index].push_str(&format!(
+                "-{}",
+                &uuid::Uuid::new_v4().simple().to_string()[..8]
+            ));
+            // `docker run` passes the container exactly `env`; its own
+            // environment never reaches the server.
+            env = HashMap::new();
+            (program, args, Vec::new())
+        } else {
+            let launch = crate::handlers::run::subprocess::native_sandboxed_launch(
                 command,
                 &server.args,
                 true,
@@ -1715,6 +1802,13 @@ impl StdioInspection {
                 &[],
             )
             .with_context(|| format!("failed to sandbox MCP server command '{command}'"))?;
+            launch
+        };
+        let cwd = if network.is_some() {
+            std::env::current_dir()?
+        } else {
+            cwd
+        };
         let mut launch = tokio::process::Command::new(&program);
         launch.args(&args).envs(&env);
         for name in &env_removals {
@@ -1740,6 +1834,7 @@ impl StdioInspection {
         });
         Ok(Self {
             _proxy: proxy,
+            _network: network,
             child,
             stdin,
             stdout,
@@ -1811,6 +1906,16 @@ impl StdioInspection {
             let _ = self.child.kill().await;
         }
         self.stderr.abort();
+    }
+}
+
+/// A Docker inspection's network; removing it also removes the server's
+/// container.
+struct InspectionNetwork(crate::handlers::run::docker_sandbox::DockerRunNetwork);
+
+impl Drop for InspectionNetwork {
+    fn drop(&mut self) {
+        let _ = crate::handlers::run::docker_sandbox::remove_run_network(&self.0);
     }
 }
 

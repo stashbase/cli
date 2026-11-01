@@ -1005,4 +1005,58 @@ done
             relay.await.unwrap().unwrap();
         }
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_flooding_server_waits_for_an_agent_that_does_not_read() {
+        let dir = std::env::temp_dir().join(format!("stashbase-flood-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let count = dir.join("count");
+        let launch = StdioServerLaunch {
+            program: "/bin/sh".to_owned(),
+            args: vec![
+                "-c".to_owned(),
+                format!(
+                    "i=0; while :; do echo '{{\"jsonrpc\":\"2.0\",\"method\":\"n\"}}'; i=$((i+1)); echo $i > '{}'; done",
+                    count.display()
+                ),
+            ],
+            env: HashMap::new(),
+            env_removals: Vec::new(),
+            cwd: dir.clone(),
+            stderr_log: None,
+            container_name_arg: None,
+        };
+        let policy = policy();
+        // A small pipe to the agent, which never reads from it.
+        let (agent, broker_side) = tokio::io::duplex(1024);
+        let relay =
+            tokio::spawn(
+                async move { serve(broker_side, "flood", &launch, &policy, |_, _| {}).await },
+            );
+        let written = || {
+            std::fs::read_to_string(&count)
+                .ok()
+                .and_then(|text| text.trim().parse::<u64>().ok())
+                .unwrap_or(0)
+        };
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let first = written();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let second = written();
+        // Blocked once the server's stdout pipe and the agent pipe are full,
+        // instead of queueing every line in memory.
+        assert!(first > 0, "the server never started");
+        assert_eq!(
+            first, second,
+            "the server kept writing: {first} then {second} lines"
+        );
+        assert!(
+            second < 20_000,
+            "{second} lines were accepted from the server"
+        );
+        drop(agent);
+        let _ = tokio::time::timeout(Duration::from_secs(10), relay).await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
