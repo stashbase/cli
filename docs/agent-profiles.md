@@ -331,7 +331,7 @@ The server's stderr is written to `mcp-logs/<session>/<server>.log` next to the 
 
 With `--remote`, servers run on this machine and their HTTP calls go through the remote Agent Proxy like the agent's own.
 
-`stashbase agent mcp tools`, `configure` and `verify` start the server on this machine, in the current directory, to list its tools, with the profile's egress and no secrets loaded.
+`stashbase agent mcp tools`, `configure` and `verify` start the server the way `agent run` would, in the current directory, to list its tools: under the native sandbox, or in a container for a Docker profile, with the profile's egress and no secrets loaded.
 
 ### Argument conditions
 
