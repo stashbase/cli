@@ -321,7 +321,7 @@ claude mcp add github -- stashbase agent mcp connect github
 codex mcp add github -- stashbase agent mcp connect github
 ```
 
-Any agent that starts stdio MCP servers from a command works the same way, and the same registration works with every sandbox backend and with `--remote`. Outside `stashbase agent run` the command exits with an error.
+Any agent that starts stdio MCP servers from a command works the same way, and the same registration works with every sandbox backend and with `--remote`. With the Docker sandbox, the agent reads its config from the sandbox's home volume, so register the server inside `stashbase agent docker shell` (see [Login persistence](sandboxing.md#login-persistence)). Outside `stashbase agent run` the command exits with an error.
 
 Each time the agent connects, the run starts a fresh server where the agent can't reach its input and output: a separate process under the agent's own sandbox, or with `[sandbox] backend = "docker"`, a separate container from the agent's image, with the same mounts and the same firewalled network. Install the server's runtime (`npx`, `uvx`) in the image the agent uses. The Docker sandbox needs no Stashbase CLI in the image: the run mounts a small `stashbase` stand-in that only connects to the run (it needs `bash`). Either way the server's network goes only through the Agent Proxy. The proxy checks every message against `allow_tools`, `deny_tools` and `tool_rules`, exactly as for an HTTP server. A refused call never reaches the server; the agent gets a JSON-RPC error with the same message an HTTP server's 403 carries, and `tools/list` leaves out the tools the agent can't call. The server stops when the agent disconnects.
 
