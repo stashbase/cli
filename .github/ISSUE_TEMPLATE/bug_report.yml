@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in Stashbase CLI doesn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Found a security problem? Please don't file it here. See [SECURITY.md](https://github.com/stashbase/cli/blob/master/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands and, if relevant, the agent profile with secret values removed.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: CLI version
+      description: Output of `stashbase --version`
+      placeholder: stashbase 0.25.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (Apple Silicon)
+        - Linux x64
+        - Windows (WSL2)
+        - Windows (native)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Sandbox backend
+      description: Only for `agent run`.
+      options:
+        - Not using agent run
+        - Native
+        - Docker
+        - Remote session (--remote)
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      placeholder: claude, codex, cursor, ...
+  - type: textarea
+    id: doctor
+    attributes:
+      label: stashbase doctor output
+      description: Output of `stashbase doctor --verbose`. Check it for anything you don't want to share.
+      render: text

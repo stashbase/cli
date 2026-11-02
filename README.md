@@ -4,13 +4,81 @@
   <img src="docs/assets/readme-hero.png" alt="Stashbase: access control for coding agents. An agent session sees only a credential placeholder; the audit log shows the token injected for api.github.com and blocked for other hosts." width="100%">
 </p>
 
-Run Claude Code, Codex, Cursor, and other coding agents through a local or remote Agent Proxy with controlled access to secrets, APIs, files, MCP tools, and dependencies—without exposing raw credentials.
+<p align="center">
+  <a href="https://github.com/stashbase/cli/releases/latest"><img src="https://img.shields.io/github/v/release/stashbase/cli?style=flat-square&labelColor=0a0a0a&color=262626&label=release" alt="Latest release"></a>
+  <a href="LICENSE.txt"><img src="https://img.shields.io/github/license/stashbase/cli?style=flat-square&labelColor=0a0a0a&color=262626" alt="License: Apache-2.0"></a>
+</p>
 
-Stashbase is an open-source access layer that gives coding agents the access they need while keeping raw credentials out of the agent process. Instead of handing out API keys, agents receive placeholders that the Agent Proxy exchanges only for approved destinations. Audit logs record proxy-mediated requests and policy decisions.
+<p align="center">
+  <a href="https://stashbase.dev">Website</a> ·
+  <a href="https://docs.stashbase.dev/cli">Docs</a> ·
+  <a href="#threat-model-and-security-boundary">Threat model</a> ·
+  <a href="SECURITY.md">Security</a> ·
+  <a href="https://github.com/stashbase/cli/releases">Releases</a>
+</p>
 
-## Table of Contents
+Run Claude Code, Codex, Cursor, and other coding agents in a sandbox with access rules for files, APIs, MCP tools, and dependencies. Agents get placeholders instead of credentials; the Agent Proxy swaps in the real value only for the destinations you approve, and audit-logs every decision.
 
-- [Agent Quickstart](#agent-quickstart)
+## Install
+
+```bash
+# macOS (Apple Silicon)
+brew tap stashbase/homebrew-stashbase && brew trust stashbase/stashbase && brew install stashbase
+
+# Linux (x64)
+curl -fsSL https://stashbase.dev/cli/install.sh | bash
+```
+
+Windows (Scoop + WSL2 for `agent run`), servers over SSH, and direct downloads: see [Installation](#installation).
+
+## Quickstart
+
+No account needed: keep a secret in a local file, and the agent only ever sees a placeholder.
+
+```bash
+# 1. Put a secret in a file outside your project
+mkdir -p ~/.secrets && echo 'GH_TOKEN=ghp_...' > ~/.secrets/agent.env
+
+# 2. Create a profile (writes .stashbase/agents/coding.toml)
+stashbase agent init coding
+```
+
+Replace the generated profile with:
+
+```toml
+# Where secret values come from (absolute path)
+file = "/Users/you/.secrets/agent.env"
+
+# Hosts the agent may reach directly, such as its own model API
+egress_hosts = ["api.anthropic.com"]
+
+# Keep the secrets file out of the agent's reach
+[filesystem]
+deny_read = ["~/.secrets"]
+
+# The agent sees **STASHBASE_GH_TOKEN**; the proxy swaps in the real token only for api.github.com
+[secrets.GH_TOKEN]
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET", "POST"]
+paths = ["/*"]
+```
+
+```bash
+# 3. Check the profile, then run your agent through the Agent Proxy
+stashbase agent validate --profile coding
+stashbase agent run --profile coding -- claude
+```
+
+For Codex, run `codex` and allow its hosts instead (for example `chatgpt.com` and `api.openai.com`); the same goes for Cursor and other agents.
+
+When the agent hits something the profile doesn't allow, the run ends with a one-line notice. `stashbase agent allow` shows the blocked requests and adds the ones you choose to the profile.
+
+**Team secrets, personal credentials, and remote sessions.** Connect a [Stashbase account](https://stashbase.dev) with `stashbase setup`, then point the profile at a shared project and environment instead of a local file. See [Basic Example](#basic-example) and [Remote Agent Sessions](#remote-agent-sessions).
+
+## Contents
+
 - [What Stashbase Controls](#what-stashbase-controls)
 - [Agent Proxy and Profiles](#agent-proxy-and-profiles)
   - [Basic Example](#basic-example)
@@ -36,32 +104,6 @@ Stashbase is an open-source access layer that gives coding agents the access the
 - [Installation](#installation)
 - [Contributing, License, and Contact](#contributing-license-and-contact)
 
-## Agent Quickstart
-
-Start here if you want to run a coding agent with controlled access to your secrets.
-
-1. **Install Stashbase CLI** (see [Installation](#installation) for your platform)
-
-2. **Initialize your setup and create an agent profile:**
-
-```bash
-# Initial setup (creates credentials)
-stashbase setup
-
-# Create an agent profile (generates .stashbase/agents/coding.toml)
-stashbase agent init coding
-
-# Validate the profile before using it
-stashbase agent validate --profile coding
-
-# Run your agent with the profile
-stashbase agent run --profile coding -- codex
-```
-
-Replace `codex` with `claude` for Claude Code, or `cursor` for Cursor.
-
-A fresh profile grants no egress destinations. Edit `.stashbase/agents/coding.toml` to add the secrets and API hosts your agent needs. See [Basic Example](#basic-example) for a complete, working profile.
-
 ## What Stashbase Controls
 
 Agent profiles let you control:
@@ -70,7 +112,7 @@ Agent profiles let you control:
 - **API hosts, methods, and paths**: Allow or deny specific destinations—for example, `GET /repos/*/*` on `api.github.com` but deny `DELETE /*`.
 - **Filesystem access**: Block reads from `.env`, `~/.ssh`, or other sensitive directories. Block writes to `.git` or shared config.
 - **Network egress**: Agents connect only through a loopback proxy. Direct connections to unapproved hosts are denied.
-- **MCP tools**: Authorize or deny which MCP tools the agent can discover and call.
+- **MCP tools**: Authorize or deny which MCP tools the agent can discover and call, for HTTP servers and for local stdio servers that the run starts on the agent's behalf.
 - **Dependency installation hooks**: Scan and block suspicious package installs before they run.
 - **Local and remote Agent Proxy sessions**: Run agents locally through a policy-controlled proxy, or use remote sessions where credentials remain in Stashbase and never reach your machine. Manage, monitor, and revoke remote sessions from Stashbase.
 - **Audit logs and revocation**: Proxy decisions are logged by default. Revoke individual local or remote sessions and inspect their proxy activity.
@@ -335,7 +377,7 @@ Remote Agent Proxy is not a general network sandbox; it relays supported HTTP tr
 
 ### MCP Tools Authorization
 
-HTTP MCP server profiles can control which tools are visible to the agent. Define a secret for authentication and an MCP server entry with tool authorization:
+MCP server profiles, over HTTP or stdio, can control which tools are visible to the agent. An HTTP server needs a secret for authentication and an MCP server entry with tool authorization:
 
 ```toml
 [secrets.MCP_TOKEN]
@@ -354,7 +396,9 @@ deny_tools = ["delete_repo"]
 
 Denied tools are removed from `tools/list`, so the agent does not discover them. Direct `tools/call` attempts for denied tools are rejected. `deny_tools` takes precedence. An omitted or empty `allow_tools` allows no tools; use `allow_tools = ["*"]` to allow every tool.
 
-For configuration examples and the `agent mcp tools`, `check`, and `verify` commands, see the [agent-profile cookbook](docs/agent-profiles.md#http-mcp-servers).
+A stdio server is declared with `command` instead of `url`. `stashbase agent run` starts it, not the agent, and the agent reaches it through `stashbase agent mcp connect`, so the same tool rules apply and the server only gets placeholders. See [stdio servers](docs/agent-profiles.md#stdio-servers) and the read-only [GitHub stdio example](docs/agent-profiles/examples/github-stdio.toml).
+
+For configuration examples and the `agent mcp tools`, `check`, and `verify` commands, see the [agent-profile cookbook](docs/agent-profiles.md#mcp-tool-restrictions).
 
 ### Audit Logs and Session Revocation
 
