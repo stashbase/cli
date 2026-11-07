@@ -109,14 +109,6 @@ pub struct ListEnvironments {
     #[arg(long = "search")]
     pub search: Option<String>,
 
-    /// Filter by production status
-    #[arg(
-        long = "production",
-        alias = "prod",
-        help = "Filter environments by production status (true/false)"
-    )]
-    pub is_production: Option<bool>,
-
     /// Sort environments by
     #[arg(long = "sort-by")]
     pub sort_by: Option<EnvSortBy>,
@@ -139,8 +131,6 @@ impl Default for EnvSortBy {
 #[derive(Debug, ValueEnum, Clone)]
 pub enum EnvSortBy {
     Name,
-    #[value(name = "is_production")]
-    IsProduction,
     #[value(name = "created_at")]
     CreatedAt,
     #[value(name = "updated_at")]
@@ -153,7 +143,6 @@ impl fmt::Display for EnvSortBy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             EnvSortBy::Name => write!(f, "name"),
-            EnvSortBy::IsProduction => write!(f, "is_production"),
             EnvSortBy::CreatedAt => write!(f, "created_at"),
             EnvSortBy::UpdatedAt => write!(f, "updated_at"),
             EnvSortBy::SecretCount => write!(f, "secret_count"),
@@ -232,10 +221,6 @@ pub struct UpdateEnvironment {
     #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 
-    /// Whether the environment is production or not, defaults to false
-    #[arg(name = "production", alias = "prod", long = "production")]
-    pub is_production: Option<bool>,
-
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
@@ -292,10 +277,6 @@ pub struct CreateEnvironment {
 
     /// Environment name
     pub name: String,
-
-    /// Whether the environment is production or not, defaults to false
-    #[arg(name = "production", alias = "prod", long = "production")]
-    pub is_production: Option<bool>,
 
     /// Environment description
     #[arg(short = 'd', long = "description")]

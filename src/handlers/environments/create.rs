@@ -29,7 +29,6 @@ pub struct HandleCreateEnvironmentArgs {
     pub api_key: String,
     pub project: String,
     pub name: String,
-    pub is_production: Option<bool>,
     pub description: Option<String>,
     pub file_path: Option<String>,
     pub format: Option<SecretsFileFormat>,
@@ -42,7 +41,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         api_key,
         project,
         name,
-        is_production,
         description,
         file_path,
         format,
@@ -190,7 +188,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     let data = CreatEnvironmentPayload {
         name,
         description,
-        is_production,
         secrets,
     };
 

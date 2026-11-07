@@ -44,8 +44,6 @@ struct SchemaEnvironment {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    is_production: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -96,7 +94,6 @@ pub async fn handle_pull_secret_schema(args: HandlePullSecretSchemaArgs) -> Resu
             id: environment.id,
             name: environment.name,
             description: non_empty(environment.description),
-            is_production: environment.is_production,
         },
         secrets: secret_metadata
             .secrets
@@ -243,7 +240,6 @@ mod tests {
                 id: "environment_456".to_owned(),
                 name: "production".to_owned(),
                 description: Some("Customer-facing environment.".to_owned()),
-                is_production: Some(true),
             },
             secrets: secret_metadata
                 .secrets
@@ -259,13 +255,12 @@ mod tests {
         assert!(yaml.contains("name: api"));
         assert!(yaml.contains("id: project_123"));
         assert!(yaml.contains("id: environment_456"));
-        assert!(yaml.contains("is_production: true"));
         assert!(yaml.contains("name: STRIPE_SECRET_KEY"));
         assert!(!yaml.contains("sk_live_secret_value"));
         assert!(!yaml.contains("created_at"));
         assert!(!yaml.contains("version:"));
         assert!(yaml.contains("Main customer API.\n\nenvironment:"));
-        assert!(yaml.contains("is_production: true\n\nsecrets:"));
+        assert!(yaml.contains("Customer-facing environment.\n\nsecrets:"));
         assert!(
             yaml.contains("comment: Used to create payments and refunds.\n\n- name: SENTRY_DSN")
         );
@@ -290,26 +285,5 @@ mod tests {
         .unwrap();
 
         assert_eq!(yaml, "name: SENTRY_DSN\n");
-    }
-
-    #[test]
-    fn is_production_is_omitted_when_absent() {
-        let export = SecretSchemaExport {
-            project: SchemaProject {
-                id: "project_123".to_owned(),
-                name: "api".to_owned(),
-                description: None,
-            },
-            environment: SchemaEnvironment {
-                id: "environment_456".to_owned(),
-                name: "preview".to_owned(),
-                description: None,
-                is_production: None,
-            },
-            secrets: Vec::new(),
-        };
-
-        let yaml = serialize_schema_yaml(&export).unwrap();
-        assert!(!yaml.contains("is_production"));
     }
 }

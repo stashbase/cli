@@ -23,7 +23,6 @@ pub struct HandleListEnvironmentsArgs {
     pub search: Option<String>,
     pub sort_by: Option<EnvSortBy>,
     pub order: Option<Order>,
-    pub is_production: Option<bool>,
     pub format: OutputFormat,
 }
 
@@ -35,11 +34,8 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         search,
         sort_by: sort,
         order,
-        is_production,
         format,
     } = args;
-
-    debug!("{:#?}", is_production);
 
     let project_identifier_vlidation_result = validate_project_identifier(&project, false);
 
@@ -79,7 +75,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let args = ListEnvsRequestArgs {
         api_key,
         project,
-        is_production,
         search,
         sort_by: sort,
         order,

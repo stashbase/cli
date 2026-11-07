@@ -131,7 +131,6 @@ pub async fn handle_environment_commands(
                 search: args.search,
                 sort_by: args.sort_by,
                 order: args.order,
-                is_production: args.is_production,
                 format,
             };
 
@@ -144,7 +143,6 @@ pub async fn handle_environment_commands(
                 project,
                 name: args.name,
                 description: args.description,
-                is_production: args.is_production,
                 format: args.file_format,
                 file_path: args.file_path,
                 json_format: raw_output,
@@ -174,7 +172,6 @@ pub async fn handle_environment_commands(
                 environment: args.identifier,
                 new_name: args.new_name,
                 new_description: args.description,
-                new_is_production: args.is_production,
                 json_format: raw_output,
                 force: args.force,
                 silent,
