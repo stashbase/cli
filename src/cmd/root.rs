@@ -9,8 +9,6 @@ use super::{
     environments::EnvironmentCommands,
     generate::GenerateCommand,
     projects::ProjectCommands,
-    pull::PullCommand,
-    push::PushCommand,
     run::RunCommand,
     secrets::SecretArgs,
     setup::SetupCommand,
@@ -65,12 +63,6 @@ pub enum EntityType {
 
     /// Load environment and run command
     Run(RunCommand),
-
-    /// Pull secrets from environment
-    Pull(PullCommand),
-
-    /// Push secrets to environment
-    Push(PushCommand),
 
     #[clap(name = "projects", aliases = &["proj"])]
     /// Manage projects
@@ -221,6 +213,26 @@ mod tests {
                 ["stashbase", "agent", "hooks", "deps", action, "claude",]
             )
             .is_ok());
+        }
+    }
+
+    #[test]
+    fn push_and_pull_live_under_secrets() {
+        for args in [
+            vec!["stashbase", "secrets", "push"],
+            vec!["stashbase", "secrets", "pull"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_old_top_level_commands_are_gone() {
+        for command in ["push", "pull"] {
+            assert!(
+                Cli::try_parse_from(["stashbase", command]).is_err(),
+                "{command}"
+            );
         }
     }
 

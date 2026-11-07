@@ -221,7 +221,7 @@ fn pull_and_push_each_report_one_event_when_they_fail() {
     sandbox.enable();
 
     for command in ["pull", "push"] {
-        let out = sandbox.run(&[command, "--api-key", "dummy-key"]);
+        let out = sandbox.run(&["secrets", command, "--api-key", "dummy-key"]);
 
         let events = events(&out);
         assert_eq!(events.len(), 1, "{command}: {}", stderr(&out));
@@ -527,7 +527,7 @@ fn a_missing_api_key_is_reported_as_an_auth_error() {
     let sandbox = Sandbox::new();
     sandbox.enable();
 
-    let out = sandbox.run(&["pull"]); // no --api-key, no STASHBASE_API_KEY
+    let out = sandbox.run(&["secrets", "pull"]); // no --api-key, no STASHBASE_API_KEY
 
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     let events = events(&out);
@@ -573,7 +573,7 @@ fn a_malformed_config_file_is_reported_as_an_error_not_a_success() {
     std::fs::create_dir_all(sandbox.config_file().parent().unwrap()).unwrap();
     std::fs::write(sandbox.config_file(), "this is = = not toml [[[\n").unwrap();
 
-    let out = sandbox.run(&["pull", "--api-key", "dummy-key"]);
+    let out = sandbox.run(&["secrets", "pull", "--api-key", "dummy-key"]);
 
     let events = events(&out);
     assert_eq!(events.len(), 1, "{}", stderr(&out));
@@ -588,7 +588,7 @@ fn an_unknown_profile_is_reported_as_an_error_not_a_success() {
     sandbox.enable();
 
     let out = sandbox.run_with(
-        &["pull", "--api-key", "dummy-key"],
+        &["secrets", "pull", "--api-key", "dummy-key"],
         &[("STASHBASE_PROFILE", "SENTINEL-no-such-profile")],
     );
 
@@ -604,7 +604,7 @@ fn a_missing_config_file_is_reported_as_a_validation_error() {
     let sandbox = Sandbox::new(); // no stashbase.yaml
     sandbox.enable();
 
-    let out = sandbox.run(&["pull", "--api-key", "dummy-key"]);
+    let out = sandbox.run(&["secrets", "pull", "--api-key", "dummy-key"]);
 
     let events = events(&out);
     assert_eq!(events.len(), 1, "{}", stderr(&out));
@@ -999,7 +999,7 @@ fn reports_from_inside_a_session(scrub: &str) -> Option<(Vec<String>, Vec<String
 
     // Run a tracked command inside the session, and keep the session open
     // long enough for its sender to try.
-    let inside = format!("{scrub} {BIN} pull >/dev/null 2>&1; sleep 2");
+    let inside = format!("{scrub} {BIN} secrets pull >/dev/null 2>&1; sleep 2");
     let out = sandbox
         .command(
             &["agent", "run", "--profile", "p", "--", "sh", "-c", &inside],

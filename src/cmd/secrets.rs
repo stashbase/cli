@@ -8,6 +8,8 @@ use crate::models::{
 
 use super::{
     config::SecretsOutputFormat,
+    pull::PullCommand,
+    push::PushCommand,
     shared::{try_get_project_environment, try_get_scope, SharedProjectEnvArgs, SharedScopeArgs},
 };
 
@@ -120,6 +122,8 @@ impl SecretSubcommand {
                     p.shared_args.environment.as_deref(),
                 ),
             },
+            // push/pull resolve project and environment from stashbase.yaml
+            SecretSubcommand::Push(_) | SecretSubcommand::Pull(_) => (None, None),
         }
     }
     pub fn get_scope(&self) -> Option<&Scope> {
@@ -139,6 +143,7 @@ impl SecretSubcommand {
                 MetadataSecretSubcommand::Get(g) => g.scope_args.scope.as_ref(),
             },
             SecretSubcommand::Schema(_) => None,
+            SecretSubcommand::Push(_) | SecretSubcommand::Pull(_) => None,
         }
     }
 }
@@ -180,6 +185,12 @@ pub enum SecretSubcommand {
 
     /// Manage safe, redacted environment schema for coding agents
     Schema(SchemaSecrets),
+
+    /// Push secrets from a local file to the environment
+    Push(PushCommand),
+
+    /// Pull secrets from the environment to a local file
+    Pull(PullCommand),
 }
 
 #[derive(Debug, Args)]

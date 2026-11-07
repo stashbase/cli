@@ -114,7 +114,7 @@ pub fn dispatch(event: &Event) {
 /// Starts `command` detached from this process and terminal, writes
 /// `payload` to its stdin and returns without waiting for it. Stdout and
 /// stderr go to the null device so the child never keeps a pipe open (for
-/// example in `stashbase pull | cat`).
+/// example in `stashbase secrets pull | cat`).
 fn spawn_with_payload(mut command: Command, payload: &[u8]) -> io::Result<()> {
     command
         .stdin(Stdio::piped())
