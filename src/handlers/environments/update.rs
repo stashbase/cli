@@ -24,7 +24,6 @@ pub struct HandleUpdateEnvironmentArgs {
     pub environment: String,
     pub new_name: Option<String>,
     pub new_description: Option<String>,
-    pub new_is_production: Option<bool>,
     pub json_format: bool,
     pub silent: bool,
     pub force: bool,
@@ -37,7 +36,6 @@ pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> any
         environment,
         new_name,
         new_description,
-        new_is_production,
         json_format,
         silent,
         force,
@@ -49,7 +47,6 @@ pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> any
         &environment,
         &new_name,
         &new_description,
-        &new_is_production,
     );
 
     if let Err(err) = input_valid_res {
@@ -90,7 +87,6 @@ pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> any
     let data = UpdateEnvironmentPayload {
         name: new_name,
         description: new_description,
-        is_production: new_is_production,
     };
 
     let spinner = if !silent {
@@ -144,7 +140,6 @@ pub fn validate_input(
     environment: &str,
     new_env_name: &Option<String>,
     new_description: &Option<String>,
-    new_is_production: &Option<bool>,
 ) -> Result<(), InputValidationError> {
     let project_name_is_valid = validate_project_name(&project, false, false);
 
@@ -158,7 +153,7 @@ pub fn validate_input(
         return Err(err);
     }
 
-    if new_env_name.is_none() && new_description.is_none() && new_is_production.is_none() {
+    if new_env_name.is_none() && new_description.is_none() {
         let err =
             InputValidationError::Environments(EnvironmentsInputValidationError::NoUpdateFlags);
         return Err(err);

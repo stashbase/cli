@@ -14,7 +14,6 @@ pub struct ListEnvsRequestArgs {
     pub api_key: String,
     pub project: String,
     pub search: Option<String>,
-    pub is_production: Option<bool>,
     pub sort_by: Option<EnvSortBy>,
     pub order: Option<Order>,
 }
@@ -24,7 +23,6 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
         api_key,
         project,
         search,
-        is_production,
         sort_by,
         order,
     } = args;
@@ -41,10 +39,6 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
 
     if let Some(search) = search {
         query.push(("search".to_string(), search));
-    }
-
-    if let Some(is_production) = is_production {
-        query.push(("is_production".to_string(), is_production.to_string()));
     }
 
     let args = RequestArgs {

@@ -22,8 +22,6 @@ pub struct Environment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_production: Option<bool>,
     pub secret_count: usize,
 
     // only for personal auth (api key)
@@ -49,6 +47,57 @@ pub struct TableEnvironment {
     pub name: String,
 
     // date string
+    #[tabled(rename = "Created", order = 5)]
+    pub created_at: String,
+
+    #[tabled(rename = "Updated", order = 6)]
+    pub updated_at: String,
+
+    // only for personal auth (api key)
+    #[tabled(rename = "User role", order = 2)]
+    pub user_role: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Description", order = 4)]
+    pub description: Option<String>,
+
+    #[tabled(rename = "Secrets", order = 3)]
+    pub secret_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct TableEnvironmentWithoutDescription {
+    #[tabled(rename = "ID", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+
+    // date string
+    #[tabled(rename = "Created", order = 4)]
+    pub created_at: String,
+
+    #[tabled(rename = "Updated", order = 5)]
+    pub updated_at: String,
+
+    // only for personal auth (api key)
+    #[tabled(rename = "User role", order = 2)]
+    pub user_role: String,
+
+    #[tabled(rename = "Secrets", order = 3)]
+    pub secret_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct TableEnvironmentWithProject {
+    #[tabled(rename = "ID", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+
+    // date string
     #[tabled(rename = "Created", order = 6)]
     pub created_at: String,
 
@@ -61,18 +110,18 @@ pub struct TableEnvironment {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 5)]
+    #[tabled(rename = "Description", order = 4)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Production", order = 3)]
-    pub is_production: bool,
-
-    #[tabled(rename = "Secrets", order = 4)]
+    #[tabled(rename = "Secrets", order = 3)]
     pub secret_count: usize,
+
+    #[tabled(rename = "Project", order = 5)]
+    pub project: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-pub struct TableEnvironmentWithoutDescription {
+pub struct TableEnvironmentWithProjectWithoutDescription {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
@@ -90,73 +139,10 @@ pub struct TableEnvironmentWithoutDescription {
     #[tabled(rename = "User role", order = 2)]
     pub user_role: String,
 
-    #[tabled(rename = "Production", order = 3)]
-    pub is_production: bool,
-
-    #[tabled(rename = "Secrets", order = 4)]
-    pub secret_count: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize, Tabled)]
-pub struct TableEnvironmentWithProject {
-    #[tabled(rename = "ID", order = 0)]
-    pub id: String,
-
-    #[tabled(rename = "Name", order = 1)]
-    pub name: String,
-
-    // date string
-    #[tabled(rename = "Created", order = 7)]
-    pub created_at: String,
-
-    #[tabled(rename = "Updated", order = 8)]
-    pub updated_at: String,
-
-    // only for personal auth (api key)
-    #[tabled(rename = "User role", order = 2)]
-    pub user_role: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 5)]
-    pub description: Option<String>,
-
-    #[tabled(rename = "Production", order = 3)]
-    pub is_production: bool,
-
-    #[tabled(rename = "Secrets", order = 4)]
+    #[tabled(rename = "Secrets", order = 3)]
     pub secret_count: usize,
 
-    #[tabled(rename = "Project", order = 6)]
-    pub project: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Tabled)]
-pub struct TableEnvironmentWithProjectWithoutDescription {
-    #[tabled(rename = "ID", order = 0)]
-    pub id: String,
-
-    #[tabled(rename = "Name", order = 1)]
-    pub name: String,
-
-    // date string
-    #[tabled(rename = "Created", order = 6)]
-    pub created_at: String,
-
-    #[tabled(rename = "Updated", order = 7)]
-    pub updated_at: String,
-
-    // only for personal auth (api key)
-    #[tabled(rename = "User role", order = 2)]
-    pub user_role: String,
-
-    #[tabled(rename = "Production", order = 3)]
-    pub is_production: bool,
-
-    #[tabled(rename = "Secrets", order = 4)]
-    pub secret_count: usize,
-
-    #[tabled(rename = "Project", order = 5)]
+    #[tabled(rename = "Project", order = 4)]
     pub project: String,
 }
 
@@ -177,7 +163,6 @@ impl From<Environment> for TableEnvironment {
             name: env.name,
             description: env.description,
             user_role,
-            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
         }
     }
@@ -199,7 +184,6 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
             updated_at: formatted_updated,
             name: env.name,
             user_role,
-            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
         }
     }
@@ -229,7 +213,6 @@ impl From<Environment> for TableEnvironmentWithProject {
             name: env.name,
             description: env.description,
             user_role,
-            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
             project,
         }
@@ -259,7 +242,6 @@ impl From<Environment> for TableEnvironmentWithProjectWithoutDescription {
             updated_at: formatted_updated,
             name: env.name,
             user_role,
-            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
             project,
         }
@@ -277,12 +259,6 @@ impl Display for Environment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
-        writeln!(
-            f,
-            "{} {}",
-            "Production:".blue_bold_if_tty(),
-            self.is_production.unwrap_or(false)
-        )?;
 
         if let Some(user_role) = &self.user_role {
             writeln!(f, "{} {}", "User role:".blue_bold_if_tty(), user_role)?;
@@ -344,8 +320,6 @@ impl Display for Environment {
 pub struct CreatEnvironmentPayload {
     pub name: String,
     pub description: Option<String>,
-    pub is_production: Option<bool>,
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<Secret>>,
 }
@@ -367,8 +341,6 @@ pub struct UpdateEnvironmentPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_production: Option<bool>,
 }
 
 pub type CompareEnvironmentsResponse = Vec<CompareEnvironmentsItem>;
