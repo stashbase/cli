@@ -357,9 +357,19 @@ fn ssh_agent_command_with_options(
     command: &[String],
     options: &[String],
 ) -> String {
-    let agent_command = command.iter().map(|arg| shell_quote(arg)).collect::<Vec<_>>().join(" ");
-    let options = options.iter().map(|arg| shell_quote(arg)).collect::<Vec<_>>().join(" ");
-    let options = (!options.is_empty()).then(|| format!(" {options}")).unwrap_or_default();
+    let agent_command = command
+        .iter()
+        .map(|arg| shell_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let options = options
+        .iter()
+        .map(|arg| shell_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let options = (!options.is_empty())
+        .then(|| format!(" {options}"))
+        .unwrap_or_default();
     format!(
         "{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\ncd {} && exec \"$bin\" agent run --profile {} --profile-source {}{} -- {}",
         shell_quote(remote_dir),

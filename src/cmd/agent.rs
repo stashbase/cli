@@ -963,14 +963,26 @@ mod tests {
         .expect("SSH target parses when the machine and repository are supplied");
         let EntityType::Agent(AgentCommand {
             subcommand: AgentSubcommand::Run(run),
-        }) = parsed.entity_type else {
+        }) = parsed.entity_type
+        else {
             panic!("expected agent run")
         };
         assert_eq!(run.ssh.as_deref(), Some("agent-vm"));
-        assert_eq!(run.remote_dir.as_deref(), Some(std::path::Path::new("/srv/repo")));
+        assert_eq!(
+            run.remote_dir.as_deref(),
+            Some(std::path::Path::new("/srv/repo"))
+        );
 
         assert!(Cli::try_parse_from([
-            "stashbase", "agent", "run", "--profile", "coding", "--ssh", "agent-vm", "--", "codex",
+            "stashbase",
+            "agent",
+            "run",
+            "--profile",
+            "coding",
+            "--ssh",
+            "agent-vm",
+            "--",
+            "codex",
         ])
         .is_err());
     }
