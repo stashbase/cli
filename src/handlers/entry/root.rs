@@ -832,6 +832,9 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     handle_agent_profiles_command(agent_profiles, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Run(agent_run) => async {
+                    if agent_run.ssh.is_some() {
+                        return crate::handlers::ssh::handle_ssh_agent_run(&agent_run, silent);
+                    }
                     let explicit_profile = agent_run
                         .policy_file
                         .as_deref()

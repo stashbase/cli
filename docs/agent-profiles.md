@@ -31,6 +31,21 @@ For a remote session:
 stashbase agent run --remote --profile my-profile -- <your-command>
 ```
 
+### Run on an SSH machine
+
+Use a prepared machine without changing how its agent process is sandboxed:
+
+```bash
+stashbase agent run --ssh agent-vm --remote-dir /srv/my-repo \
+  --profile my-profile -- codex
+```
+
+The remote machine must already have Stashbase configured (`stashbase ssh install`,
+`setup`, and `doctor`) and the repository/profile at `--remote-dir`. Pass `--remote`
+to create a remote Agent Proxy session; use `--remote-mode full` when all traffic
+should use it. `[sandbox] backend = "native"` or `"docker"` still chooses the
+sandbox on the remote machine; Docker is recommended.
+
 ## Repository and Global Profiles
 
 A profile is one TOML file, in one of two places:
