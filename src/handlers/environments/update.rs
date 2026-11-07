@@ -42,12 +42,7 @@ pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> any
     } = args;
 
     // validation
-    let input_valid_res = validate_input(
-        &project,
-        &environment,
-        &new_name,
-        &new_description,
-    );
+    let input_valid_res = validate_input(&project, &environment, &new_name, &new_description);
 
     if let Err(err) = input_valid_res {
         let error = err.format_error_output(json_format)?;
