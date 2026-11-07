@@ -206,7 +206,7 @@ fn a_malformed_config_toml_fails_every_command_that_reads_it() {
     let failed = Reported::Event("error", Some("validation"));
     check(
         "pull",
-        &project.run(&["pull", "--api-key", "k"]),
+        &project.run(&["secrets", "pull", "--api-key", "k"]),
         1,
         message,
         failed,
@@ -244,7 +244,7 @@ fn an_unknown_profile_environment_variable_fails_with_exit_1() {
     let project = Project::new();
 
     let out = project.run_with(
-        &["pull", "--api-key", "k"],
+        &["secrets", "pull", "--api-key", "k"],
         &[("STASHBASE_PROFILE", "no-such-profile")],
     );
 
@@ -290,14 +290,14 @@ fn a_missing_api_key_exits_1_for_pull_push_and_run() {
 
     check(
         "pull",
-        &project.run(&["pull"]),
+        &project.run(&["secrets", "pull"]),
         1,
         "API key is required",
         auth(),
     );
     check(
         "push",
-        &project.run(&["push"]),
+        &project.run(&["secrets", "push"]),
         1,
         "API key is required",
         auth(),
@@ -323,7 +323,7 @@ fn a_missing_api_key_exits_1_for_pull_push_and_run() {
 fn a_missing_api_key_in_json_mode_prints_a_json_error_and_exits_1() {
     let project = Project::new();
 
-    let out = project.run(&["pull", "--json"]);
+    let out = project.run(&["secrets", "pull", "--json"]);
 
     check(
         "pull --json",
@@ -342,7 +342,7 @@ fn a_missing_stashbase_yaml_prints_the_error_and_exits_1() {
     for command in ["pull", "push"] {
         check(
             command,
-            &project.run(&[command, "--api-key", "k"]),
+            &project.run(&["secrets", command, "--api-key", "k"]),
             1,
             "No 'stashbase.yaml' file found",
             failed(),
@@ -356,11 +356,25 @@ fn conflicting_scope_flags_print_the_error_and_exit_1() {
 
     for (args, message) in [
         (
-            &["pull", "--scope", "environment", "--api-key", "k"][..],
+            &[
+                "secrets",
+                "pull",
+                "--scope",
+                "environment",
+                "--api-key",
+                "k",
+            ][..],
             "Target file is required when using environment scope",
         ),
         (
-            &["push", "--scope", "environment", "--api-key", "k"][..],
+            &[
+                "secrets",
+                "push",
+                "--scope",
+                "environment",
+                "--api-key",
+                "k",
+            ][..],
             "Target file is required when using environment scope",
         ),
         (
@@ -783,6 +797,7 @@ fn ctrl_c_during_a_request_exits_130_and_reports_aborted() {
     let mut child = project
         .command(
             &[
+                "secrets",
                 "pull",
                 "--scope",
                 "environment",
@@ -827,8 +842,22 @@ fn conflicting_scope_flags_are_reported_as_validation_failures() {
     let project = Project::new();
 
     for args in [
-        &["pull", "--scope", "environment", "--api-key", "k"][..],
-        &["push", "--scope", "environment", "--api-key", "k"][..],
+        &[
+            "secrets",
+            "pull",
+            "--scope",
+            "environment",
+            "--api-key",
+            "k",
+        ][..],
+        &[
+            "secrets",
+            "push",
+            "--scope",
+            "environment",
+            "--api-key",
+            "k",
+        ][..],
         &[
             "run",
             "--scope",

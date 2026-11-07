@@ -28,14 +28,12 @@ pub enum TrackedCommand {
 
 impl TrackedCommand {
     /// The command is chosen from the parsed clap enum, never from argv text.
-    /// Tracked: setup, pull, push, run, secrets schema pull, scan install,
+    /// Tracked: setup, secrets pull, secrets push, run, secrets schema pull, scan install,
     /// agent init, agent run, agent docker build and ssh install. Everything
     /// else sends nothing.
     pub fn from_entity(entity: &EntityType) -> Option<Self> {
         match entity {
             EntityType::Setup(_) => Some(Self::Setup),
-            EntityType::Pull(_) => Some(Self::Pull),
-            EntityType::Push(_) => Some(Self::Push),
             EntityType::Run(_) => Some(Self::Run),
             // Only `scan install` (adopting the git hook) is tracked within
             // `scan`; the checks themselves run from git hooks on every commit.
@@ -50,6 +48,10 @@ impl TrackedCommand {
                 SecretSubcommand::Schema(schema) => match &schema.subcommand {
                     SchemaSecretSubcommand::Pull(_) => Some(Self::SecretsSchemaPull),
                 },
+                // `secrets pull` / `secrets push` keep the labels the
+                // top-level commands had, so usage stays comparable.
+                SecretSubcommand::Pull(_) => Some(Self::Pull),
+                SecretSubcommand::Push(_) => Some(Self::Push),
                 _ => None,
             },
             // Exhaustive on purpose: a new `agent` subcommand must be
@@ -311,8 +313,8 @@ mod tests {
     fn tracks_only_the_listed_commands() {
         let tracked: Vec<(&[&str], &str)> = vec![
             (&["stashbase", "setup"], "setup"),
-            (&["stashbase", "pull"], "pull"),
-            (&["stashbase", "push"], "push"),
+            (&["stashbase", "secrets", "pull"], "pull"),
+            (&["stashbase", "secrets", "push"], "push"),
             (&["stashbase", "run", "--", "echo", "hi"], "run"),
             (
                 &[

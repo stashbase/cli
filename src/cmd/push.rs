@@ -9,7 +9,7 @@ use crate::models::{
 pub type PushFormat = PullFormat;
 
 #[derive(Debug, Args)]
-#[command(override_usage = "push [OPTIONS]")]
+#[command(override_usage = "secrets push [OPTIONS]")]
 pub struct PushCommand {
     /// Relative path to a config file (default: stashbase.yaml)
     #[arg(short = 'c', long = "config")]

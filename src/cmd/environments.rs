@@ -91,7 +91,7 @@ pub enum EnvironmentSubcommand {
     /// Compare secrets of two environments
     Compare(CompareEnvironment),
 
-    /// Delete a project
+    /// Delete an environment
     #[clap(aliases = &["del"])]
     Delete(DeleteEnvironment),
 

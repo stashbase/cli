@@ -736,7 +736,7 @@ For questions or feedback, contact us at [support@stashbase.dev](mailto:support@
 
 ## Telemetry
 
-The CLI sends privacy-preserving usage telemetry for a small set of commands: setup, pull, push, run, secrets schema pull, scan install, and agent init, run and docker build. It never includes
+The CLI sends privacy-preserving usage telemetry for a small set of commands: setup, secrets pull, secrets push, run, secrets schema pull, scan install, and agent init, run and docker build. It never includes
 commands or arguments, paths, secrets, hosts or policy contents, and is never
 sent from sandboxes or CI. Opt out with `stashbase config telemetry disable`,
 `STASHBASE_TELEMETRY=0` or `DO_NOT_TRACK=1`. See [docs/telemetry.md](docs/telemetry.md).

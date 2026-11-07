@@ -21,6 +21,7 @@ use crate::{
         },
         config::{ConfigCommand, ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
+        secrets::{SecretArgs, SecretSubcommand},
     },
     config::{config, secure_store},
     exit::{needs_printing, Exit, IntoExit},
@@ -60,7 +61,10 @@ use crate::{
         setup::setup,
         telemetry::handle_telemetry_command,
     },
-    models::{config::Config, validation::InputValidationError},
+    models::{
+        config::Config,
+        validation::{CmdArgInputValidationError, InputValidationError},
+    },
     telemetry::event::{classify_error, ErrorKind},
     utils::{
         env::get_stashbase_api_key,
@@ -631,18 +635,108 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     },
                     None => None,
                 };
-                //
+                match cmd.subcommand {
+                    SecretSubcommand::Push(_) | SecretSubcommand::Pull(_)
+                        if cmd.project.is_some()
+                            || cmd.environment.is_some()
+                            || cmd.scope.is_some() =>
+                    {
+                        if !silent {
+                            eprintln!();
+                        }
+                        eprintln!(
+                            "{}",
+                            InputValidationError::CmdArgs(
+                                CmdArgInputValidationError::ScopeNotSupportedForCommand
+                            )
+                            .format_error_output(raw_output)
+                            .unwrap_or_else(|_| "Error formatting validation error".to_string())
+                        );
+                        return Exit::failed(ErrorKind::Validation);
+                    }
+                SecretSubcommand::Pull(pull_cmd) => {
+                    // Validate scope conflicts
+                    if let Err(e) = pull_cmd.validate_scope_conflicts() {
+                        if !silent {
+                            eprintln!();
+                        }
 
-                handle_secrets_commands(
-                    cmd,
-                    api_key,
-                    raw_output,
-                    config.expand_refs,
-                    silent,
-                    default_secrets_output_format,
-                )
-                .await
-                .into_exit()
+                        eprintln!(
+                            "{}",
+                            e.format_error_output(raw_output)
+                                .unwrap_or_else(|_| "Error formatting validation error".to_string())
+                        );
+                        return Exit::failed(ErrorKind::Validation);
+                    }
+
+                    let args = HandlePullArgs {
+                        api_key,
+                        scope: pull_cmd.scope,
+                        file: pull_cmd.config_file,
+                        set: pull_cmd.set,
+                        set_comments: pull_cmd.set_comment,
+                        target_file: pull_cmd.file,
+                        format: pull_cmd.format,
+                        only: pull_cmd.only,
+                        exclude: pull_cmd.exclude,
+                        expand_refs: pull_cmd.expand_refs,
+                        ignore_comments: pull_cmd.ignore_comments,
+                        print_secrets: pull_cmd.print_secrets,
+                        no_print_secrets: pull_cmd.no_print_secrets,
+                        overwrite_file: pull_cmd.overwrite,
+                        json_format: raw_output,
+                        silent,
+                    };
+
+                    handle_pull(args).await.into_exit()
+                }
+                SecretSubcommand::Push(push_cmd) => {
+                    // Validate scope conflicts
+                    if let Err(e) = push_cmd.validate_scope_conflicts() {
+                        if !silent {
+                            eprintln!();
+                        }
+
+                        eprintln!(
+                            "{}",
+                            e.format_error_output(raw_output)
+                                .unwrap_or_else(|_| "Error formatting validation error".to_string())
+                        );
+                        return Exit::failed(ErrorKind::Validation);
+                    }
+
+                    let args = HandlePushArgs {
+                        api_key,
+                        scope: push_cmd.scope,
+                        config_file_path: push_cmd.config_file,
+                        target_file: push_cmd.file,
+                        format: push_cmd.format,
+                        only: push_cmd.only,
+                        exclude: push_cmd.exclude,
+                        set: push_cmd.set,
+                        set_comments: push_cmd.set_comment,
+                        expand_refs: push_cmd.expand_refs,
+                        ignore_comments: push_cmd.ignore_comments,
+                        json_format: raw_output,
+                        silent,
+                    };
+
+                    handle_push(args).await.into_exit()
+                }
+                    subcommand => {
+                        let cmd = SecretArgs { subcommand, ..cmd };
+                        handle_secrets_commands(
+                            cmd,
+                            api_key,
+                            raw_output,
+                            config.expand_refs,
+                            silent,
+                            default_secrets_output_format,
+                        )
+                        .await
+                        .into_exit()
+                    }
+                }
             }
             EntityType::Webhooks(cmd) => {
                 let default_output_format = match config.ouput_format {
@@ -1514,76 +1608,6 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 };
 
                 handle_load_env_run(args).await.into_exit()
-            }
-            EntityType::Pull(pull_cmd) => {
-                // Validate scope conflicts
-                if let Err(e) = pull_cmd.validate_scope_conflicts() {
-                    if !silent {
-                        eprintln!();
-                    }
-
-                    eprintln!(
-                        "{}",
-                        e.format_error_output(raw_output)
-                            .unwrap_or_else(|_| "Error formatting validation error".to_string())
-                    );
-                    return Exit::failed(ErrorKind::Validation);
-                }
-
-                let args = HandlePullArgs {
-                    api_key,
-                    scope: pull_cmd.scope,
-                    file: pull_cmd.config_file,
-                    set: pull_cmd.set,
-                    set_comments: pull_cmd.set_comment,
-                    target_file: pull_cmd.file,
-                    format: pull_cmd.format,
-                    only: pull_cmd.only,
-                    exclude: pull_cmd.exclude,
-                    expand_refs: pull_cmd.expand_refs,
-                    ignore_comments: pull_cmd.ignore_comments,
-                    print_secrets: pull_cmd.print_secrets,
-                    no_print_secrets: pull_cmd.no_print_secrets,
-                    overwrite_file: pull_cmd.overwrite,
-                    json_format: raw_output,
-                    silent,
-                };
-
-                handle_pull(args).await.into_exit()
-            }
-
-            EntityType::Push(push_cmd) => {
-                // Validate scope conflicts
-                if let Err(e) = push_cmd.validate_scope_conflicts() {
-                    if !silent {
-                        eprintln!();
-                    }
-
-                    eprintln!(
-                        "{}",
-                        e.format_error_output(raw_output)
-                            .unwrap_or_else(|_| "Error formatting validation error".to_string())
-                    );
-                    return Exit::failed(ErrorKind::Validation);
-                }
-
-                let args = HandlePushArgs {
-                    api_key,
-                    scope: push_cmd.scope,
-                    config_file_path: push_cmd.config_file,
-                    target_file: push_cmd.file,
-                    format: push_cmd.format,
-                    only: push_cmd.only,
-                    exclude: push_cmd.exclude,
-                    set: push_cmd.set,
-                    set_comments: push_cmd.set_comment,
-                    expand_refs: push_cmd.expand_refs,
-                    ignore_comments: push_cmd.ignore_comments,
-                    json_format: raw_output,
-                    silent,
-                };
-
-                handle_push(args).await.into_exit()
             }
             EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent)
                 .await
@@ -2594,7 +2618,7 @@ arguments = { mode = "draft" }
         for args in [
             &["stashbase", "agent", "hooks", "deps", "install", "codex"][..],
             &["stashbase", "agent", "run", "--profile", "p", "--", "true"],
-            &["stashbase", "pull"],
+            &["stashbase", "secrets", "pull"],
         ] {
             assert!(!is_bare_agent_hook(&parse(args)), "{args:?}");
         }

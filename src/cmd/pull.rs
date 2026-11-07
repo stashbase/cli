@@ -31,7 +31,7 @@ impl TryFrom<PullFormat> for SecretsOutputFormat {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "pull [OPTIONS]")]
+#[command(override_usage = "secrets pull [OPTIONS]")]
 pub struct PullCommand {
     /// Relative path to a config file (default: stashbase.yaml)
     #[arg(value_enum, short = 'c', long = "config")]

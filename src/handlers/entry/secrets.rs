@@ -306,6 +306,8 @@ pub async fn handle_secrets_commands(
                 handle_get_secret_metadata(args).await?;
             }
         },
+        // handled before reaching here (see the secrets arm in entry/root.rs)
+        SecretSubcommand::Push(_) | SecretSubcommand::Pull(_) => unreachable!(),
         SecretSubcommand::Schema(args) => match args.subcommand {
             SchemaSecretSubcommand::Pull(args) => {
                 handle_pull_secret_schema(HandlePullSecretSchemaArgs {
