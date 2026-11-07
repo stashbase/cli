@@ -13,10 +13,12 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use crate::{
+    cmd::agent::{AgentProfileSource, AgentRunCommand},
     cmd::ssh::{
         Multiplexer, SshCommand, SshDoctor, SshInstall, SshOpen, SshSessionsClose, SshSessionsList,
         SshSessionsSubcommand, SshSetup, SshSubcommand, SshUninstall,
     },
+    exit::Exit,
     handlers::run::entry::shell_quote,
     utils::{
         human_datetime::format_utc,
@@ -299,6 +301,130 @@ pub fn handle_ssh_command(cmd: SshCommand, json: bool, silent: bool) -> Result<(
             }
         },
     }
+}
+
+/// Runs an agent on a prepared SSH machine. The remote CLI owns profile
+/// loading, Agent Proxy session creation, and the selected native/Docker sandbox.
+pub fn handle_ssh_agent_run(cmd: &AgentRunCommand, silent: bool) -> Result<Exit> {
+    if which_ssh().is_none() {
+        bail!("`ssh` was not found on this machine.");
+    }
+    if cmd.policy_file.is_some() {
+        bail!("--policy-file is local-only; put the profile on the SSH machine and use --profile.");
+    }
+    let host = cmd.ssh.as_deref().context("--ssh is required")?;
+    let remote_dir = cmd
+        .remote_dir
+        .as_deref()
+        .context("--remote-dir is required with --ssh")?;
+    validate_host(host)?;
+    let ssh = Connection::open(host, silent)?;
+    let remote_command = ssh_agent_command_with_options(
+        &remote_dir.to_string_lossy(),
+        &cmd.profile,
+        profile_source_name(cmd.profile_source),
+        &cmd.command,
+        &ssh_agent_options(cmd),
+    );
+    let status = ssh
+        .command(true, &remote_command)
+        .status()
+        .context("Could not start `ssh`")?;
+    Ok(Exit::code(status.code().unwrap_or(1)))
+}
+
+fn profile_source_name(source: AgentProfileSource) -> &'static str {
+    match source {
+        AgentProfileSource::Global => "global",
+        AgentProfileSource::Directory => "directory",
+        AgentProfileSource::Auto => "auto",
+    }
+}
+
+fn ssh_agent_command(
+    remote_dir: &str,
+    profile: &str,
+    profile_source: &str,
+    command: &[String],
+) -> String {
+    ssh_agent_command_with_options(remote_dir, profile, profile_source, command, &[])
+}
+
+fn ssh_agent_command_with_options(
+    remote_dir: &str,
+    profile: &str,
+    profile_source: &str,
+    command: &[String],
+    options: &[String],
+) -> String {
+    let agent_command = command
+        .iter()
+        .map(|arg| shell_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let options = options
+        .iter()
+        .map(|arg| shell_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let options = (!options.is_empty())
+        .then(|| format!(" {options}"))
+        .unwrap_or_default();
+    format!(
+        "{LOCATE_BINARY}[ -n \"$bin\" ] || exit {NOT_INSTALLED}\ncd {} && exec \"$bin\" agent run --profile {} --profile-source {}{} -- {}",
+        shell_quote(remote_dir),
+        shell_quote(profile),
+        shell_quote(profile_source),
+        options,
+        agent_command,
+    )
+}
+
+fn ssh_agent_options(cmd: &AgentRunCommand) -> Vec<String> {
+    let mut options = Vec::new();
+    if cmd.remote {
+        options.push("--remote".to_owned());
+    }
+    if let Some(mode) = cmd.remote_mode {
+        options.extend(["--remote-mode".to_owned(), mode.as_str().to_owned()]);
+    }
+    if cmd.trust_proxy_ca {
+        options.push("--trust-proxy-ca".to_owned());
+    }
+    if let Some(port) = cmd.proxy_port {
+        options.extend(["--proxy-port".to_owned(), port.to_string()]);
+    }
+    if let Some(docker) = cmd.docker_sandbox {
+        options.extend(["--docker-sandbox".to_owned(), docker.to_string()]);
+    }
+    if let Some(image) = &cmd.docker_image {
+        options.extend(["--docker-image".to_owned(), image.clone()]);
+    }
+    if let Some(dockerfile) = &cmd.docker_dockerfile {
+        options.extend(["--docker-dockerfile".to_owned(), dockerfile.clone()]);
+    }
+    if let Some(memory) = &cmd.docker_memory {
+        options.extend(["--docker-memory".to_owned(), memory.clone()]);
+    }
+    if let Some(cpus) = &cmd.docker_cpus {
+        options.extend(["--docker-cpus".to_owned(), cpus.clone()]);
+    }
+    if let Some(worktree) = cmd.worktree {
+        options.push(format!("--worktree={worktree}"));
+    }
+    if let Some(resume) = &cmd.resume {
+        options.extend(["--resume".to_owned(), resume.clone()]);
+    }
+    for paths in &cmd.docker_isolated_paths {
+        options.extend(["--docker-isolated-paths".to_owned(), paths.clone()]);
+    }
+    for (name, value) in &cmd.config_env {
+        options.extend(["--config-env".to_owned(), format!("{name}={value}")]);
+    }
+    if !cmd.audit_log {
+        options.push("--audit-log=false".to_owned());
+    }
+    options
 }
 
 /// Exit code of `close_script` when there's no session by that name.
@@ -1506,6 +1632,45 @@ mod tests {
             .find("! infocmp \"$TERM\" >/dev/null 2>&1; then export TERM=xterm-256color; fi")
             .unwrap();
         assert!(fallback < tmux.find("exec tmux").unwrap());
+    }
+
+    #[test]
+    fn ssh_agent_command_keeps_remote_proxy_opt_in() {
+        let command = ssh_agent_command(
+            "/srv/project",
+            "coding",
+            "auto",
+            &["codex".to_owned(), "fix issue 123".to_owned()],
+        );
+
+        assert_eq!(
+            command,
+            "bin=$(\"${SHELL:-sh}\" -lc 'command -v stashbase' 2>/dev/null | tail -n 1)\nif [ -z \"$bin\" ] && [ -x \"$HOME/.local/bin/stashbase\" ]; then bin=\"$HOME/.local/bin/stashbase\"; fi\n[ -n \"$bin\" ] || exit 3\ncd /srv/project && exec \"$bin\" agent run --profile coding --profile-source auto -- codex 'fix issue 123'"
+        );
+    }
+
+    #[test]
+    fn ssh_agent_command_preserves_remote_sandbox_overrides() {
+        let command = ssh_agent_command_with_options(
+            "/srv/project",
+            "coding",
+            "auto",
+            &["codex".to_owned()],
+            &[
+                "--remote".to_owned(),
+                "--remote-mode".to_owned(),
+                "full".to_owned(),
+                "--docker-sandbox".to_owned(),
+                "true".to_owned(),
+                "--docker-memory".to_owned(),
+                "2g".to_owned(),
+            ],
+        );
+
+        assert_eq!(
+            command,
+            "bin=$(\"${SHELL:-sh}\" -lc 'command -v stashbase' 2>/dev/null | tail -n 1)\nif [ -z \"$bin\" ] && [ -x \"$HOME/.local/bin/stashbase\" ]; then bin=\"$HOME/.local/bin/stashbase\"; fi\n[ -n \"$bin\" ] || exit 3\ncd /srv/project && exec \"$bin\" agent run --profile coding --profile-source auto --remote --remote-mode full --docker-sandbox true --docker-memory 2g -- codex"
+        );
     }
 
     #[test]

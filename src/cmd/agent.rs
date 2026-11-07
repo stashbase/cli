@@ -347,6 +347,15 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub remote: bool,
 
+    /// Run on this SSH host instead of this computer. Native/Docker remain
+    /// the sandbox choice on that machine.
+    #[arg(long, requires = "remote_dir")]
+    pub ssh: Option<String>,
+
+    /// Repository directory on the SSH machine. Requires `--ssh`.
+    #[arg(long, requires = "ssh")]
+    pub remote_dir: Option<PathBuf>,
+
     /// Which traffic uses the remote proxy: `credential` (default) sends only
     /// requests that need a Stashbase credential; `full` sends everything.
     /// Your plan or workspace policy decides which modes are allowed.
@@ -786,7 +795,8 @@ fn parse_config_env_arg(arg: &str) -> Result<(String, String), String> {
 mod tests {
     use clap::ValueEnum;
 
-    use super::AgentAuditGroupBy;
+    use super::{AgentAuditGroupBy, AgentCommand, AgentSubcommand};
+    use crate::cmd::root::EntityType;
 
     #[test]
     fn audit_route_group_is_selectable() {
@@ -930,6 +940,51 @@ mod tests {
         assert!(run(&["--remote"]).is_ok());
         assert!(run(&["--remote-mode", "full"]).is_err());
         assert!(run(&["--remote", "--remote-mode", "everything"]).is_err());
+    }
+
+    #[test]
+    fn ssh_target_requires_a_machine_and_remote_directory() {
+        use crate::cmd::root::Cli;
+        use clap::Parser;
+
+        let parsed = Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "run",
+            "--profile",
+            "coding",
+            "--ssh",
+            "agent-vm",
+            "--remote-dir",
+            "/srv/repo",
+            "--",
+            "codex",
+        ])
+        .expect("SSH target parses when the machine and repository are supplied");
+        let EntityType::Agent(AgentCommand {
+            subcommand: AgentSubcommand::Run(run),
+        }) = parsed.entity_type
+        else {
+            panic!("expected agent run")
+        };
+        assert_eq!(run.ssh.as_deref(), Some("agent-vm"));
+        assert_eq!(
+            run.remote_dir.as_deref(),
+            Some(std::path::Path::new("/srv/repo"))
+        );
+
+        assert!(Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "run",
+            "--profile",
+            "coding",
+            "--ssh",
+            "agent-vm",
+            "--",
+            "codex",
+        ])
+        .is_err());
     }
 
     #[test]
