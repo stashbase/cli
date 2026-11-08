@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod cloud;
 pub mod config;
 pub mod deps;
 pub mod doctor;

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod client;
+pub mod cloud;
 pub mod dependencies;
 pub mod environments;
 pub mod projects;

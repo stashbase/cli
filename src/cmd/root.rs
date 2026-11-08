@@ -118,6 +118,13 @@ impl EntityType {
             EntityType::Doctor(_) => false,
             // Logging the machine in is optional.
             EntityType::Ssh(_) => false,
+            // The tunnel authenticates with its own single-use token.
+            EntityType::Agent(AgentCommand {
+                subcommand:
+                    AgentSubcommand::Cloud(crate::cmd::cloud::CloudCommand {
+                        subcommand: crate::cmd::cloud::CloudSubcommand::Tunnel(_),
+                    }),
+            }) => false,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Init(_),
             }) => false,

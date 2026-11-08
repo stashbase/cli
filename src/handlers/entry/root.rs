@@ -793,6 +793,13 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                 })
                 .into_exit(),
+                AgentSubcommand::Cloud(cloud_cmd) => {
+                    crate::handlers::cloud::handle_cloud_command(
+                        cloud_cmd, api_key, raw_output, silent,
+                    )
+                    .await
+                    .into_exit()
+                }
                 AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
                     crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
                         crate::handlers::agent::docker::handle_docker_cleanup_command(
