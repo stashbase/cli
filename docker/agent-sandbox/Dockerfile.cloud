@@ -42,5 +42,11 @@ RUN printf '%s\n' \
       'export DISABLE_AUTOUPDATER=1' \
       > /etc/profile.d/stashbase-sandbox.sh
 
+# websocat bridges a WebSocket to sshd for providers that expose only HTTP and
+# WebSocket ports (E2B). Fly and Daytona do not use it. Static amd64 binary.
+RUN curl -fsSL -o /usr/local/bin/websocat \
+      https://github.com/vi/websocat/releases/latest/download/websocat.x86_64-unknown-linux-musl \
+    && chmod 755 /usr/local/bin/websocat
+
 # Host keys are generated per machine start, not baked into the image.
 CMD ["sh", "-c", "ssh-keygen -A && exec /usr/sbin/sshd -D -e"]
