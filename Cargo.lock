@@ -2444,6 +2444,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rustls",
+ "rustls-native-certs",
  "rustls-platform-verifier",
  "serde",
  "serde_json",
