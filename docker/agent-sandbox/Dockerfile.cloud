@@ -1,0 +1,46 @@
+# Cloud session image: the agent sandbox plus an SSH server.
+#
+# Used by `stashbase agent cloud`, where the Stashbase API reaches sshd through
+# a TLS service on the machine and relays the connection to the CLI.
+#
+# Build the base image first, then this one:
+#   docker build -f Dockerfile -t stashbase-agent-sandbox-base .
+#   docker buildx build --platform linux/amd64 -f Dockerfile.cloud \
+#     --build-arg BASE_IMAGE=stashbase-agent-sandbox-base \
+#     -t <registry>/stashbase-cloud-sandbox:dev --push .
+ARG BASE_IMAGE=stashbase-agent-sandbox-base
+FROM ${BASE_IMAGE}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssh-server \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/sshd
+
+# The base image leaves /home/agent world-writable for arbitrary host uids;
+# sshd refuses key logins for a home directory others can write to, so give it
+# a real owner and tighten it. `-M`: the directory already exists.
+RUN useradd -M -d /home/agent -s /bin/bash agent \
+    && usermod -p '*' agent \
+    && mkdir -p /home/agent/.ssh \
+    && chown -R agent:agent /home/agent \
+    && chmod 755 /home/agent \
+    && chmod 700 /home/agent/.ssh
+
+# Key-only login for `agent`. The API writes authorized_keys at machine create.
+RUN printf '%s\n' \
+      'PasswordAuthentication no' \
+      'KbdInteractiveAuthentication no' \
+      'PermitRootLogin no' \
+      'AllowUsers agent' \
+      > /etc/ssh/sshd_config.d/sandbox.conf
+
+# sshd does not pass the container's ENV to login shells, so repeat the
+# base image's PATH and npm prefix for SSH sessions.
+RUN printf '%s\n' \
+      'export NPM_CONFIG_PREFIX=/home/agent/.npm-global' \
+      'export PATH="$PATH:/home/agent/.npm-global/bin:/home/agent/.local/bin"' \
+      'export DISABLE_AUTOUPDATER=1' \
+      > /etc/profile.d/stashbase-sandbox.sh
+
+# Host keys are generated per machine start, not baked into the image.
+CMD ["sh", "-c", "ssh-keygen -A && exec /usr/sbin/sshd -D -e"]
