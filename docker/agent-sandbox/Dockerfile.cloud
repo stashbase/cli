@@ -44,7 +44,7 @@ RUN printf '%s\n' \
 
 # websocat bridges a WebSocket to sshd for providers that expose only HTTP and
 # WebSocket ports (E2B). Fly and Daytona do not use it. Static amd64 binary.
-RUN curl -fsSL -o /usr/local/bin/websocat \
+RUN curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o /usr/local/bin/websocat \
       https://github.com/vi/websocat/releases/latest/download/websocat.x86_64-unknown-linux-musl \
     && chmod 755 /usr/local/bin/websocat
 
