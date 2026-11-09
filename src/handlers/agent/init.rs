@@ -1,10 +1,15 @@
 //! Safe scaffolding for Agent Proxy profiles, repository-local or global.
 
-use std::{env, fs};
+use std::{
+    env, fs,
+    io::IsTerminal,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
+use super::init_wizard::{run_wizard, WizardTargets};
 use crate::{
     cmd::agent::AgentInitCommand,
     config::config::{
@@ -66,15 +71,11 @@ pub fn handle_agent_init_command(
     silent: bool,
     json: bool,
 ) -> Result<()> {
-    validate_profile_name(&command.profile)?;
-    let directory = if command.global {
-        global_agent_profiles_dir()?
-    } else {
-        env::current_dir()
-            .context("Could not determine the current directory for the agent profile.")?
-            .join(DIRECTORY_AGENT_PROFILES_DIR)
+    let Some(profile) = command.profile else {
+        return run_interactive(command.global, command.force, json);
     };
-    let path = directory.join(format!("{}.toml", command.profile));
+    validate_profile_name(&profile)?;
+    let path = profile_path(&profile, command.global)?;
     let existed = path.exists();
     if existed && !command.force {
         bail!(
@@ -82,23 +83,11 @@ pub fn handle_agent_init_command(
             path.display()
         );
     }
-
-    fs::create_dir_all(&directory).with_context(|| {
-        format!(
-            "Could not create agent profiles directory '{}'.",
-            directory.display()
-        )
-    })?;
-    fs::write(&path, PROFILE_TEMPLATE)
-        .with_context(|| format!("Could not write agent profile '{}'.", path.display()))?;
+    write_profile(&path, PROFILE_TEMPLATE)?;
 
     let report = AgentInitReport {
-        profile: command.profile,
-        path: if command.global {
-            display_global_path(&path)
-        } else {
-            display_path(&path)
-        },
+        profile,
+        path: shown_path(&path, command.global),
         overwritten: existed,
     };
     if !silent {
@@ -112,6 +101,74 @@ pub fn handle_agent_init_command(
         println!("Created agent profile: {}", report.path);
     }
     Ok(())
+}
+
+fn run_interactive(global: bool, force: bool, json: bool) -> Result<()> {
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    if json || !interactive {
+        bail!(
+            "Interactive setup needs a terminal. Pass a profile name to write a starter template: \
+             stashbase agent init <PROFILE>"
+        );
+    }
+    let outcome = run_wizard(WizardTargets {
+        preset_global: global,
+        force,
+        resolve: &profile_path,
+        display: &shown_path,
+        validate_name: &validate_profile_name,
+    })?;
+    let Some(outcome) = outcome else {
+        let _ = dialoguer::console::Term::stdout().show_cursor();
+        println!("Cancelled. No profile was written.");
+        return Ok(());
+    };
+    write_profile(&outcome.path, &outcome.contents)?;
+    let shown = shown_path(&outcome.path, outcome.global);
+    let verb = if outcome.overwrite {
+        "Replaced"
+    } else {
+        "Created"
+    };
+    println!("{verb} agent profile: {shown}");
+    println!("Edit it any time to add rules, MCP servers or hooks.");
+    println!(
+        "\nStart the agent:\n  stashbase agent run --profile {} -- {}",
+        outcome.profile, outcome.agent_command
+    );
+    Ok(())
+}
+
+fn profile_path(profile: &str, global: bool) -> Result<PathBuf> {
+    let directory = if global {
+        global_agent_profiles_dir()?
+    } else {
+        env::current_dir()
+            .context("Could not determine the current directory for the agent profile.")?
+            .join(DIRECTORY_AGENT_PROFILES_DIR)
+    };
+    Ok(directory.join(format!("{profile}.toml")))
+}
+
+fn shown_path(path: &Path, global: bool) -> String {
+    if global {
+        display_global_path(path)
+    } else {
+        display_path(path)
+    }
+}
+
+fn write_profile(path: &Path, contents: &str) -> Result<()> {
+    if let Some(directory) = path.parent() {
+        fs::create_dir_all(directory).with_context(|| {
+            format!(
+                "Could not create agent profiles directory '{}'.",
+                directory.display()
+            )
+        })?;
+    }
+    fs::write(path, contents)
+        .with_context(|| format!("Could not write agent profile '{}'.", path.display()))
 }
 
 fn validate_profile_name(name: &str) -> Result<()> {

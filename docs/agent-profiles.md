@@ -13,7 +13,35 @@ Agent profiles configure secure, credential-restricted environments for running 
 
 ## Quick Start
 
-Create a profile template:
+Set up a profile interactively:
+
+```text
+$ stashbase agent init
+? Coding agent › Claude Code
+? Credentials the agent may use › Secrets from a Stashbase environment
+? Stashbase project › my-project
+? Environment › development
+? Secret name › GITHUB_TOKEN
+? Exposed to the agent as › GH_TOKEN
+? Host this secret is for (e.g. api.github.com) › api.github.com
+? Also allow writes (POST/PUT/PATCH/DELETE)? › no
+? Another secret name (empty to finish) ›
+The agent can reach only: api.anthropic.com, api.github.com. Everything else is blocked.
+? Other hosts to allow (comma-separated, empty for none) ›
+? Sandbox › Native (built-in OS sandbox)
+? Block the agent from ~/.ssh, ~/.aws, .env (read) and .git (write)? › yes
+? Save the profile › In this repository (.stashbase/agents)
+? Profile name › claude
+? Save this profile? › yes
+Created agent profile: ./.stashbase/agents/claude.toml
+
+Start the agent:
+  stashbase agent run --profile claude -- claude
+```
+
+The wizard starts closed: the agent reaches only its model provider and the hosts you name, each secret is sent read-only to one host, and no MCP servers or hooks are enabled. Press Esc to cancel; nothing is written until you confirm, and an existing profile is never replaced without asking. The result is an ordinary TOML profile that passes `stashbase agent validate`, so you can edit it afterwards to add path rules, MCP servers or hooks. Local files and no-credential profiles work without a Stashbase account.
+
+Or create a commented template to edit by hand:
 
 ```bash
 stashbase agent init my-profile
