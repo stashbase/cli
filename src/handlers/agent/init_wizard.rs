@@ -175,9 +175,51 @@ pub fn render_profile(answers: &WizardAnswers) -> Result<String> {
     Ok(format!(
         "# Stashbase Agent Proxy profile, created by `stashbase agent init` for {}.\n\
          # Edit freely; check changes with `stashbase agent validate --profile <name>`.\n\
-         # Reference: {DOCS_URL}\n\n{body}",
-        answers.agent.label()
+         # Reference: {DOCS_URL}\n\n{body}{}",
+        answers.agent.label(),
+        optional_sections(answers)
     ))
+}
+
+/// Commented examples of the sections the wizard left out, so the next step
+/// is visible when the profile is opened. All stay inert until uncommented.
+fn optional_sections(answers: &WizardAnswers) -> String {
+    let mut out = String::from("\n# --- Optional: uncomment and edit to extend this profile ---\n");
+    if !answers.protect_files {
+        out.push_str(
+            "\n# Protect sensitive files from agent reads and writes.\n\
+             # [filesystem]\n\
+             # deny_read = [\"~/.ssh\", \"~/.aws\", \".env\"]\n\
+             # deny_write = [\"~/.ssh\", \"~/.aws\", \".git\"]\n",
+        );
+    }
+    if answers.credentials.secrets().is_empty() {
+        out.push_str(
+            "\n# Grant a secret, sent only on matching requests.\n\
+             # file = \".env\"   # or, under [secrets]: project = \"...\", environment = \"...\"\n\
+             # [secrets.SECRET_NAME]\n\
+             # [[secrets.SECRET_NAME.rules]]\n\
+             # effect = \"allow\"\n\
+             # hosts = [\"api.example.com\"]\n\
+             # methods = [\"GET\"]\n\
+             # paths = [\"/v1/*\"]\n",
+        );
+    }
+    out.push_str(
+        "\n# Non-sensitive config for the agent, stored in plaintext.\n\
+         # [config_env]\n\
+         # NODE_ENV = \"development\"\n\
+         \n# An HTTP MCP server with a tool allowlist.\n\
+         # [mcp_servers.example]\n\
+         # url = \"https://mcp.example.com/mcp\"\n\
+         # allow_tools = [\"search\"]\n\
+         \n# Installed dependency and secret-scan hooks.\n\
+         # allow_hooks = [\"dependency_check\", \"secret_scan\"]\n\
+         \n# Run the agent in its own git worktree.\n\
+         # [workspace]\n\
+         # worktree = true\n",
+    );
+    out
 }
 
 fn strings(values: Vec<String>) -> Value {
@@ -625,6 +667,17 @@ mod tests {
         }))
         .unwrap();
         assert!(!toml.contains("value"));
+    }
+
+    #[test]
+    fn optional_examples_are_commented_and_listed() {
+        let toml = render_profile(&answers(CredentialSource::None)).unwrap();
+        assert!(toml.contains("# [mcp_servers.example]"));
+        assert!(toml.contains("# [secrets.SECRET_NAME]"));
+        assert!(toml.contains("# allow_hooks"));
+        assert!(!toml.contains("# [filesystem]"));
+        let profile = parse(&toml);
+        assert!(profile.mcp_servers.is_empty() && profile.config_env.is_empty());
     }
 
     #[test]
