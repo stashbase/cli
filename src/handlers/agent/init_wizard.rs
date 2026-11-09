@@ -290,7 +290,13 @@ pub fn run_wizard(targets: WizardTargets) -> Result<Option<WizardOutcome>> {
         None => return Ok(None),
         Some(0) => CredentialSource::None,
         Some(1) => {
-            let path = text(&theme, "Path to the secrets file", Some(".env"), false)?;
+            let path = loop {
+                let path = text(&theme, "Path to the secrets file", Some(".env"), false)?;
+                if Path::new(&path).is_file() {
+                    break path;
+                }
+                println!("{path} was not found. Create it first, or enter another path.");
+            };
             CredentialSource::File {
                 path,
                 secrets: prompt_secrets(&theme)?,
@@ -630,15 +636,21 @@ mod tests {
 
     #[test]
     fn file_secret_with_writes_and_docker() {
+        // Validation requires the secrets file to exist; don't rely on the checkout.
+        let file =
+            std::env::temp_dir().join(format!("stashbase-init-wizard-{}.env", std::process::id()));
+        std::fs::write(&file, "GITHUB_TOKEN=fake\n").unwrap();
+        let file = file.to_string_lossy().into_owned();
         let mut a = answers(CredentialSource::File {
-            path: ".env".into(),
+            path: file.clone(),
             secrets: vec![grant(true)],
         });
         a.docker = true;
         a.agent = CodingAgent::Codex;
         a.extra_hosts = vec!["registry.npmjs.org".into(), "chatgpt.com".into()];
         let profile = parse(&render_profile(&a).unwrap());
-        assert_eq!(profile.file.as_deref(), Some(".env"));
+        assert_eq!(profile.file.as_deref(), Some(file.as_str()));
+        let _ = std::fs::remove_file(&file);
         assert!(profile.secrets.bindings["GITHUB_TOKEN"].rules[0]
             .methods
             .contains(&"DELETE".to_string()));
