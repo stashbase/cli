@@ -1440,6 +1440,9 @@ impl Proxy {
             }
             remote_ca_file = Some(remote_ca);
         }
+        if remove_ca_file {
+            append_system_roots(&ca_file)?;
+        }
         let bind_address = format!("{bind_host}:{}", proxy_port.unwrap_or(0));
         let listener = TcpListener::bind(&bind_address)
             .await
@@ -1736,6 +1739,35 @@ fn child_env_name_for_placeholder(
         .unwrap_or(binding_name)
 }
 
+/// Appends the OS trust roots to the child's CA file. Hosts no rule inspects
+/// are tunneled with their real certificate, and many clients (OpenSSL via
+/// `SSL_CERT_FILE`, Codex via `CODEX_CA_CERTIFICATE`) treat the file as their
+/// whole trust store rather than an addition to it.
+fn append_system_roots(ca_file: &Path) -> Result<()> {
+    let roots = rustls_native_certs::load_native_certs();
+    for error in &roots.errors {
+        debug!("could not load a system trust root: {error}");
+    }
+    let mut bundle = fs::read_to_string(ca_file)?;
+    for certificate in roots.certs {
+        bundle.push('\n');
+        bundle.push_str(&pem_encode_certificate(certificate.as_ref()));
+    }
+    fs::write(ca_file, bundle).context("failed to write the proxy CA bundle")
+}
+
+fn pem_encode_certificate(der: &[u8]) -> String {
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(der);
+    let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
+    for line in encoded.as_bytes().chunks(64) {
+        pem.push_str(std::str::from_utf8(line).unwrap());
+        pem.push('\n');
+    }
+    pem.push_str("-----END CERTIFICATE-----\n");
+    pem
+}
+
 fn create_certificate_authority() -> Result<(CertifiedIssuer<'static, KeyPair>, PathBuf)> {
     let subject = format!("Stashbase Proxy {}", Uuid::new_v4());
     let mut params = CertificateParams::new(vec!["stashbase-proxy.local".to_owned()])?;
@@ -2014,8 +2046,58 @@ fn proxy_request(
                 },
                 None => None,
             };
+            // A host no rule looks inside of is tunneled as-is, so the client
+            // sees the real certificate and any TLS stack works, including ones
+            // that only trust the OS store (cargo on macOS, Go, Java). Host
+            // policy was already applied above.
+            let direct_tunnel = if connect_remote.is_none()
+                && !state.needs_interception(host_from_authority(&authority))
+            {
+                if authority_is_listener(&authority, state.listen_address) {
+                    state.record_audit(
+                        "loop_blocked",
+                        Some(host_from_authority(&authority)),
+                        Some(&Method::CONNECT),
+                        None,
+                        Some(StatusCode::LOOP_DETECTED),
+                        Some(started.elapsed()),
+                    );
+                    return Ok(proxy_error_response(
+                        StatusCode::LOOP_DETECTED,
+                        "proxy.loop_detected",
+                        "CONNECT target is the Agent Proxy itself",
+                    ));
+                }
+                let target =
+                    split_authority(&authority, true).unwrap_or_else(|| (authority.clone(), 443));
+                match TcpStream::connect((target.0.as_str(), target.1)).await {
+                    Ok(stream) => Some(stream),
+                    Err(error) => {
+                        debug!("direct CONNECT to {authority} failed: {error:#}");
+                        state.record_audit(
+                            "connect_failed",
+                            Some(host_from_authority(&authority)),
+                            Some(&Method::CONNECT),
+                            None,
+                            Some(StatusCode::BAD_GATEWAY),
+                            Some(started.elapsed()),
+                        );
+                        return Ok(proxy_error_response(
+                            StatusCode::BAD_GATEWAY,
+                            "proxy.connect_failed",
+                            &format!("Unable to connect to {authority}"),
+                        ));
+                    }
+                }
+            } else {
+                None
+            };
             state.record_audit(
-                "connect_allowed",
+                if direct_tunnel.is_some() {
+                    "connect_tunneled"
+                } else {
+                    "connect_allowed"
+                },
                 Some(host_from_authority(&authority)),
                 Some(&Method::CONNECT),
                 None,
@@ -2038,6 +2120,9 @@ fn proxy_request(
                             {
                                 debug!("remote proxy CONNECT tunnel failed: {error:#}");
                             }
+                        } else if let Some(mut upstream) = direct_tunnel {
+                            let mut child = TokioIo::new(upgraded);
+                            let _ = copy_bidirectional(&mut child, &mut upstream).await;
                         } else {
                             let _ =
                                 serve_tls_connection(upgraded, authority, connection_state).await;
@@ -3875,6 +3960,26 @@ impl ProxyState {
         !policy_denies_host(&self.policy, host)
             && (!(self.policy.strict_deny || self.policy.egress_hosts_configured)
                 || policy_allows_connect(&self.policy, host))
+    }
+
+    /// Whether HTTPS to `host` must be decrypted: a credential or MCP rule
+    /// covers it. Egress rules are host-level, so they never need it.
+    fn needs_interception(&self, host: &str) -> bool {
+        let covers = |allowed: &String| host_matches(allowed, host);
+        self.policy
+            .secret_policies
+            .values()
+            .any(|secret_policy| match secret_policy {
+                SecretHttpPolicy::LegacyHosts(hosts) => hosts.iter().any(covers),
+                SecretHttpPolicy::Rules(rules) => {
+                    rules.iter().any(|rule| rule.hosts.iter().any(covers))
+                }
+            })
+            || self
+                .policy
+                .mcp_rules
+                .iter()
+                .any(|rule| rule.hosts.iter().any(covers))
     }
 
     fn host_allowed_for_ordinary_request(&self, host: Option<&str>) -> bool {
@@ -5962,7 +6067,8 @@ mod tests {
             .unwrap();
 
         let bundle = fs::read_to_string(&proxy.child_env()["SSL_CERT_FILE"]).unwrap();
-        assert_eq!(bundle.matches("BEGIN CERTIFICATE").count(), 2);
+        // Local CA, remote CA, then the OS roots for tunneled hosts.
+        assert!(bundle.matches("BEGIN CERTIFICATE").count() > 2);
         assert!(bundle.contains(fs::read_to_string(&remote_ca_path).unwrap().trim()));
         proxy.stop().await;
         let _ = fs::remove_file(remote_ca_path);
@@ -8045,6 +8151,112 @@ mod tests {
             .await
             .is_err());
 
+        proxy.stop().await;
+    }
+
+    /// Sends a raw CONNECT for `target` and returns the stream and status line.
+    async fn raw_connect(proxy: &Proxy, target: &str) -> (TcpStream, String) {
+        let proxy_address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+        let mut stream = TcpStream::connect(proxy_address).await.unwrap();
+        stream
+            .write_all(format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            let mut byte = [0; 1];
+            stream.read_exact(&mut byte).await.unwrap();
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8(head).unwrap();
+        (stream, head.lines().next().unwrap().to_owned())
+    }
+
+    async fn echo_server() -> std::net::SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buffer = [0; 4];
+                    if stream.read_exact(&mut buffer).await.is_ok() {
+                        let _ = stream.write_all(&buffer).await;
+                    }
+                });
+            }
+        });
+        address
+    }
+
+    #[tokio::test]
+    async fn ca_bundle_also_trusts_system_roots() {
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let bundle = fs::read(&proxy.child_env()["SSL_CERT_FILE"]).unwrap();
+        let certificates = count_pem_certificates(&bundle);
+        let system = rustls_native_certs::load_native_certs().certs.len();
+        assert_eq!(certificates, 1 + system);
+        proxy.stop().await;
+    }
+
+    fn count_pem_certificates(bundle: &[u8]) -> usize {
+        String::from_utf8_lossy(bundle)
+            .matches("BEGIN CERTIFICATE")
+            .count()
+    }
+
+    #[tokio::test]
+    async fn connect_to_a_host_without_rules_is_a_plain_tunnel() {
+        let backend = echo_server().await;
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        let (mut stream, status) = raw_connect(&proxy, &backend.to_string()).await;
+        assert!(status.contains("200"), "{status}");
+        // Bytes reach the destination untouched: no TLS is terminated here,
+        // so clients see the real certificate.
+        stream.write_all(b"ping").await.unwrap();
+        let mut echoed = [0; 4];
+        stream.read_exact(&mut echoed).await.unwrap();
+        assert_eq!(&echoed, b"ping");
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn connect_to_a_credential_host_is_still_intercepted() {
+        let backend = echo_server().await;
+        let mut policy = ProxyPolicy::permissive();
+        policy.secret_policies.insert(
+            "TOKEN".to_owned(),
+            SecretHttpPolicy::LegacyHosts(HashSet::from(["127.0.0.1".to_owned()])),
+        );
+        let proxy = Proxy::start(HashMap::new(), policy, None).await.unwrap();
+
+        let (mut stream, status) = raw_connect(&proxy, &backend.to_string()).await;
+        assert!(status.contains("200"), "{status}");
+        // The proxy expects a TLS ClientHello, so plain bytes never reach the
+        // echo server and the connection is closed instead.
+        stream.write_all(b"ping").await.unwrap();
+        let mut echoed = [0; 4];
+        let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut echoed))
+            .await
+            .unwrap();
+        assert!(!matches!(read, Ok(4) if &echoed == b"ping"));
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn connect_to_the_proxy_itself_is_refused() {
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let own = proxy.child_env()["HTTP_PROXY"]
+            .trim_start_matches("http://")
+            .to_owned();
+        let (_, status) = raw_connect(&proxy, &own).await;
+        assert!(status.contains("508"), "{status}");
         proxy.stop().await;
     }
 
