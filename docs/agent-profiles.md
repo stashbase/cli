@@ -22,7 +22,6 @@ $ stashbase agent init
 ? Stashbase project › my-project
 ? Environment › development
 ? Secret name › GITHUB_TOKEN
-? Exposed to the agent as › GH_TOKEN
 ? Host this secret is for (e.g. api.github.com) › api.github.com
 ? Also allow writes (POST/PUT/PATCH/DELETE)? › no
 ? Another secret name (empty to finish) ›

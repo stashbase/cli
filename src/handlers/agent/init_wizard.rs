@@ -397,7 +397,8 @@ pub fn run_wizard(targets: WizardTargets) -> Result<Option<WizardOutcome>> {
 
 fn prompt_secrets(theme: &ColorfulTheme) -> Result<Vec<SecretGrant>> {
     println!(
-        "Each secret is sent only to the host you name, read-only (GET/HEAD) unless you allow writes."
+        "Each secret is sent only to the host you name, read-only (GET/HEAD) unless you allow writes.\n\
+         The agent sees it under the same name; to rename it, add env = \"NEW_NAME\" in the profile."
     );
     let mut secrets: Vec<SecretGrant> = Vec::new();
     loop {
@@ -414,7 +415,7 @@ fn prompt_secrets(theme: &ColorfulTheme) -> Result<Vec<SecretGrant>> {
             println!("{name} is already added.");
             continue;
         }
-        let env = text(theme, "Exposed to the agent as", Some(&name), false)?;
+        let env = name.clone();
         let host = text(
             theme,
             "Host this secret is for (e.g. api.github.com)",
