@@ -35,8 +35,8 @@ egress_hosts = []
 # NODE_ENV = "development"
 # PORT = 3000
 
-# Replace SECRET_NAME with the Stashbase secret to grant.
-[secrets.SECRET_NAME]
+# Grant a Stashbase secret: uncomment and replace SECRET_NAME.
+# [secrets.SECRET_NAME]
 
 # Optional named HTTP MCP server and tool allowlist.
 # [mcp_servers.example]
@@ -47,11 +47,11 @@ egress_hosts = []
 # allow_tools = ["search"]
 
 # Example: permit one read-only HTTP action for this credential.
-[[secrets.SECRET_NAME.rules]]
-effect = "allow"
-hosts = ["api.example.com"]
-methods = ["GET"]
-paths = ["/v1/resource/*"]
+# [[secrets.SECRET_NAME.rules]]
+# effect = "allow"
+# hosts = ["api.example.com"]
+# methods = ["GET"]
+# paths = ["/v1/resource/*"]
 "#;
 
 #[derive(Debug, Serialize)]
@@ -146,8 +146,36 @@ mod tests {
         assert!(
             PROFILE_TEMPLATE.contains("# allow_hooks = [\"dependency_check\", \"secret_scan\"]")
         );
-        assert!(PROFILE_TEMPLATE.contains("[secrets.SECRET_NAME]"));
-        assert!(PROFILE_TEMPLATE.contains("[[secrets.SECRET_NAME.rules]]"));
+        assert!(PROFILE_TEMPLATE.contains("# [secrets.SECRET_NAME]"));
+        assert!(PROFILE_TEMPLATE.contains("# [[secrets.SECRET_NAME.rules]]"));
+    }
+
+    #[test]
+    fn template_parses_without_placeholder_secrets() {
+        let profile: crate::models::agent::AgentProfile = toml::from_str(PROFILE_TEMPLATE).unwrap();
+        assert!(profile.secrets.bindings.is_empty());
+    }
+
+    #[test]
+    fn template_secret_example_is_valid_when_uncommented() {
+        let uncommented: String = PROFILE_TEMPLATE
+            .lines()
+            .map(|line| match line.strip_prefix("# ") {
+                Some(rest)
+                    if rest.starts_with("[secrets.")
+                        || rest.starts_with("[[secrets.")
+                        || ["effect", "hosts", "methods", "paths"]
+                            .iter()
+                            .any(|key| rest.starts_with(&format!("{key} ="))) =>
+                {
+                    rest
+                }
+                _ => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let profile: crate::models::agent::AgentProfile = toml::from_str(&uncommented).unwrap();
+        assert_eq!(profile.secrets.bindings["SECRET_NAME"].rules.len(), 1);
     }
 
     #[test]
