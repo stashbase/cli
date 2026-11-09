@@ -38,8 +38,8 @@ impl CodingAgent {
     /// Hosts the agent itself needs to reach its model provider.
     pub fn default_hosts(&self) -> Vec<String> {
         let hosts: &[&str] = match self {
-            Self::ClaudeCode => &["api.anthropic.com"],
-            Self::Codex => &["chatgpt.com", "api.openai.com"],
+            Self::ClaudeCode => &["api.anthropic.com", "platform.claude.com"],
+            Self::Codex => &["chatgpt.com", "api.openai.com", "auth.openai.com"],
             Self::Other(_) => &[],
         };
         hosts.iter().map(|host| host.to_string()).collect()
@@ -555,7 +555,10 @@ mod tests {
     #[test]
     fn no_credentials_profile_is_restrictive_and_valid() {
         let profile = parse(&render_profile(&answers(CredentialSource::None)).unwrap());
-        assert_eq!(profile.egress_hosts.unwrap(), vec!["api.anthropic.com"]);
+        assert_eq!(
+            profile.egress_hosts.unwrap(),
+            vec!["api.anthropic.com", "platform.claude.com"]
+        );
         assert!(profile.file.is_none());
         assert!(profile.secrets.bindings.is_empty());
         assert!(profile.mcp_servers.is_empty());
@@ -606,6 +609,7 @@ mod tests {
             vec![
                 "chatgpt.com",
                 "api.openai.com",
+                "auth.openai.com",
                 "api.github.com",
                 "registry.npmjs.org"
             ]

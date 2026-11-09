@@ -25,7 +25,7 @@ $ stashbase agent init
 ? Host this secret is for (e.g. api.github.com) › api.github.com
 ? Also allow writes (POST/PUT/PATCH/DELETE)? › no
 ? Another secret name (empty to finish) ›
-The agent can reach only: api.anthropic.com, api.github.com. Everything else is blocked.
+The agent can reach only: api.anthropic.com, platform.claude.com, api.github.com. Everything else is blocked.
 ? Other hosts to allow (comma-separated, empty for none) ›
 ? Sandbox › Native (built-in OS sandbox)
 ? Block the agent from ~/.ssh, ~/.aws, .env (read) and .git (write)? › yes
