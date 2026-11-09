@@ -14,7 +14,7 @@ pub struct AgentCommand {
 pub enum AgentSubcommand {
     /// Manage agent hooks
     Hooks(AgentHooksCommand),
-    /// Create a safe starter profile in .stashbase/agents (or, with --global, the global profiles)
+    /// Create an agent profile interactively, or a safe starter template with a name
     Init(AgentInitCommand),
     /// Run an agent through the Stashbase Agent Proxy
     Run(AgentRunCommand),
@@ -264,10 +264,11 @@ pub struct AgentMcpConnectCommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent init <PROFILE> [--force]")]
+#[command(override_usage = "agent init [PROFILE] [--global] [--force]")]
 pub struct AgentInitCommand {
-    /// Name for the new profile
-    pub profile: String,
+    /// Name for the new profile. Omit it in a terminal to set the profile up
+    /// interactively; with a name, a commented starter template is written.
+    pub profile: Option<String>,
 
     /// Create a global profile (agents/<profile>.toml next to config.toml),
     /// usable from any directory, instead of a repository-local one
