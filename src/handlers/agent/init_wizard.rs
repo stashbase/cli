@@ -292,10 +292,15 @@ pub fn run_wizard(targets: WizardTargets) -> Result<Option<WizardOutcome>> {
         Some(1) => {
             let path = loop {
                 let path = text(&theme, "Path to the secrets file", Some(".env"), false)?;
-                if Path::new(&path).is_file() {
+                if !Path::new(&path).is_file() {
+                    println!("{path} was not found. Create it first, or enter another path.");
+                } else if std::fs::File::open(&path).is_err() {
+                    println!(
+                        "{path} is not readable. Check its permissions, or enter another path."
+                    );
+                } else {
                     break path;
                 }
-                println!("{path} was not found. Create it first, or enter another path.");
             };
             CredentialSource::File {
                 path,
