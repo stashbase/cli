@@ -12,6 +12,9 @@ pub struct CloudSession {
     pub status: String,
     pub isolation: String,
     pub expires_at: String,
+    /// Set while the machine is stopped.
+    #[serde(default)]
+    pub stopped_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +106,14 @@ pub async fn attach(api_key: &str, id: &str, json_format: bool) -> Result<CloudA
 pub async fn stop(api_key: &str, id: &str, json_format: bool) -> Result<()> {
     let request = http_client()?
         .post(url(&format!("/v1/cloud/sessions/{id}/stop")))
+        .bearer_auth(api_key);
+    send(request, json_format).await?;
+    Ok(())
+}
+
+pub async fn destroy(api_key: &str, id: &str, json_format: bool) -> Result<()> {
+    let request = http_client()?
+        .delete(url(&format!("/v1/cloud/sessions/{id}")))
         .bearer_auth(api_key);
     send(request, json_format).await?;
     Ok(())
