@@ -806,9 +806,9 @@ impl EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::NameFormat { is_root } => {
                 if *is_root {
-                    ("Argument name is invalid.", Some("Name can contain only alphanumeric characters, underscores or hyphen separator (no spaces)."))
+                    ("Argument name is invalid.", Some("Name can contain only alphanumeric characters, underscores or hyphens (no spaces)."))
                 } else {
-                    ("Argument environment is invalid.", Some("Environment name can contain only alphanumeric characters, underscores or hyphen separator."))
+                    ("Argument environment is invalid.", Some("Environment name can contain only alphanumeric characters, underscores or hyphens."))
                 }
             }
             EnvironmentsInputValidationError::NewNameEqualsOriginal => (
@@ -821,7 +821,7 @@ impl EnvironmentsInputValidationError {
             ),
             EnvironmentsInputValidationError::NewNameFormat => (
                 "New name option value is invalid.",
-                Some("Name can contain only alphanumeric characters, underscores or hyphen separator (no spaces).")
+                Some("Name can contain only alphanumeric characters, underscores or hyphens (no spaces).")
             ),
             EnvironmentsInputValidationError::NewNameTooShort => (
                 "New name option value is too short.",
@@ -833,18 +833,18 @@ impl EnvironmentsInputValidationError {
             ),
             EnvironmentsInputValidationError::SearchFormat => (
                 "Argument search is invalid.",
-                Some("Search can contain only alphanumeric characters, underscores or hyphen separator.")
+                Some("Search can contain only alphanumeric characters, underscores or hyphens.")
             ),
             EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    ("Argument name or id is invalid.", Some("The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters."))
+                    ("Argument name or id is invalid.", Some("The name or id must be alphanumeric, name may include underscores (_) and hyphens (-) and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters."))
                 } else {
-                    ("Argument environment is invalid.", Some("The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters."))
+                    ("Argument environment is invalid.", Some("The environment name or id must be alphanumeric, name may include underscores (_) and hyphens (-) and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters."))
                 }
             }
             EnvironmentsInputValidationError::NameUsingIdFormat => (
                 "Name is using id format.",
-                Some("Ensure the name is in a valid format: alphanumeric, may include underscores (_) and a signle hyphen (-) as as separator, without the prefix 'env_' followed by 22 alphanumeric characters, min 2 max 40 characters.")
+                Some("Ensure the name is in a valid format: alphanumeric, may include underscores (_) and hyphens (-), without the prefix 'env_' followed by 22 alphanumeric characters, min 2 max 40 characters.")
             ),
             EnvironmentsInputValidationError::NameTooLong { is_root } => {
                 if *is_root {

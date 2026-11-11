@@ -2476,7 +2476,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "stashbase"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2511,6 +2511,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rustls",
+ "rustls-native-certs",
  "rustls-platform-verifier",
  "serde",
  "serde_json",

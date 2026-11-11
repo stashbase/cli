@@ -212,8 +212,57 @@ fn normalize_values(values: Vec<String>) -> Vec<String> {
 }
 
 fn format_profile_toml(profile: &AgentProfile) -> Result<String> {
-    let toml = toml::to_string_pretty(profile)?;
+    let toml = toml::to_string_pretty(&without_defaults(profile)?)?;
     Ok(colorize_toml(&toml, is_color_enabled(true)))
+}
+
+/// The profile as TOML minus fields left at their defaults, so `show` reads
+/// like the file instead of listing every empty section. Only known
+/// defaults are dropped: an empty `egress_hosts` or rule list still means
+/// "nothing allowed" and is kept.
+fn without_defaults(profile: &AgentProfile) -> Result<toml::Table> {
+    use toml::Value;
+    let mut root = toml::Table::try_from(profile)?;
+    let is_empty = |value: &Value| match value {
+        Value::Array(items) => items.is_empty(),
+        Value::Table(table) => table.is_empty(),
+        _ => false,
+    };
+    let drop_if = |table: &mut toml::Table, key: &str, default: &dyn Fn(&Value) -> bool| {
+        if table.get(key).is_some_and(default) {
+            table.remove(key);
+        }
+    };
+    let is_false = |value: &Value| value.as_bool() == Some(false);
+    let nested: [(&str, &[&str]); 3] = [
+        ("filesystem", &["deny_read", "deny_write"]),
+        ("sandbox", &["isolated_paths"]),
+        ("workspace", &["extra_paths"]),
+    ];
+    for (section, keys) in nested {
+        if let Some(Value::Table(table)) = root.get_mut(section) {
+            for key in keys {
+                drop_if(table, key, &is_empty);
+            }
+            drop_if(table, "worktree", &is_false);
+            drop_if(table, "backend", &|value| value.as_str() == Some("native"));
+        }
+    }
+    drop_if(&mut root, "allow_network_listeners", &is_false);
+    for key in [
+        "policy_tests",
+        "allow_hooks",
+        "filesystem",
+        "sandbox",
+        "workspace",
+        "mcp_servers",
+        "secrets",
+        "personal_credentials",
+        "config_env",
+    ] {
+        drop_if(&mut root, key, &is_empty);
+    }
+    Ok(root)
 }
 
 /// Small presentation-only highlighter for canonical TOML emitted by the
@@ -437,5 +486,32 @@ mod tests {
         };
 
         assert_eq!(binding_count(&profile), 2);
+    }
+
+    #[test]
+    fn show_omits_default_fields_but_keeps_real_choices() {
+        let profile: AgentProfile = toml::from_str(
+            "egress_hosts = []\n[filesystem]\ndeny_read = [\".env\"]\n[sandbox]\nbackend = \"docker\"\n",
+        )
+        .unwrap();
+        let shown = toml::to_string(&super::without_defaults(&profile).unwrap()).unwrap();
+        assert!(shown.contains("egress_hosts = []"));
+        assert!(shown.contains("deny_read"));
+        assert!(shown.contains("backend = \"docker\""));
+        for gone in [
+            "deny_write",
+            "isolated_paths",
+            "worktree",
+            "allow_network_listeners",
+            "policy_tests",
+            "allow_hooks",
+            "[mcp_servers]",
+            "[secrets]",
+            "[personal_credentials]",
+            "[config_env]",
+            "[workspace]",
+        ] {
+            assert!(!shown.contains(gone), "{gone} should be omitted:\n{shown}");
+        }
     }
 }

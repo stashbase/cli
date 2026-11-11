@@ -31,10 +31,6 @@ pub const SECRET_NAME_MAX_LENGTH: usize = 255;
 // 255 is max length for environment description
 pub const ENV_DESCRIPTION_MAX_LENGTH: usize = 255;
 
-pub fn count_dashes(s: &str) -> usize {
-    s.chars().filter(|&c| c == '-').count()
-}
-
 pub fn validate_project_name(
     value: &str,
     is_new_name: bool,
@@ -626,7 +622,7 @@ pub fn validate_environment_name(
     is_new_name: bool,
     is_root: bool,
 ) -> Result<(), InputValidationError> {
-    let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if value.len() < 2 {
         let err = if is_new_name == false {
@@ -652,11 +648,7 @@ pub fn validate_environment_name(
         return Err(err);
     }
 
-    let dash_count = count_dashes(value);
-    let is_firt_dash = value.chars().nth(0) == Some('-');
-    let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
-
-    if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
+    if !regex.is_match(value) {
         let err = if is_new_name == false {
             InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat {
                 is_root,
@@ -682,13 +674,9 @@ pub fn validate_environment_identifier(
 
         return Err(err);
     } else {
-        let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
+        let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
-        let dash_count = count_dashes(value);
-        let is_firt_dash = value.chars().nth(0) == Some('-');
-        let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
-
-        if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
+        if !regex.is_match(value) {
             let err = InputValidationError::Environments(
                 EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
             );
@@ -744,7 +732,7 @@ pub fn validate_project_environment_identifier(
 
 //
 pub fn validate_env_search(value: &str) -> Result<(), InputValidationError> {
-    let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if value.len() < 2 {
         let err =
@@ -752,10 +740,7 @@ pub fn validate_env_search(value: &str) -> Result<(), InputValidationError> {
 
         return Err(err);
     } else {
-        let dash_count = count_dashes(value);
-        let is_firt_dash = value.chars().nth(0) == Some('-');
-
-        if !regex.is_match(value) || dash_count > 1 || is_firt_dash {
+        if !regex.is_match(value) {
             let err =
                 InputValidationError::Environments(EnvironmentsInputValidationError::SearchFormat);
 

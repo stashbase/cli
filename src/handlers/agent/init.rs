@@ -1,10 +1,15 @@
 //! Safe scaffolding for Agent Proxy profiles, repository-local or global.
 
-use std::{env, fs};
+use std::{
+    env, fs,
+    io::IsTerminal,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
+use super::init_wizard::{run_wizard, WizardTargets};
 use crate::{
     cmd::agent::AgentInitCommand,
     config::config::{
@@ -35,8 +40,8 @@ egress_hosts = []
 # NODE_ENV = "development"
 # PORT = 3000
 
-# Replace SECRET_NAME with the Stashbase secret to grant.
-[secrets.SECRET_NAME]
+# Grant a Stashbase secret: uncomment and replace SECRET_NAME.
+# [secrets.SECRET_NAME]
 
 # Optional named HTTP MCP server and tool allowlist.
 # [mcp_servers.example]
@@ -47,11 +52,11 @@ egress_hosts = []
 # allow_tools = ["search"]
 
 # Example: permit one read-only HTTP action for this credential.
-[[secrets.SECRET_NAME.rules]]
-effect = "allow"
-hosts = ["api.example.com"]
-methods = ["GET"]
-paths = ["/v1/resource/*"]
+# [[secrets.SECRET_NAME.rules]]
+# effect = "allow"
+# hosts = ["api.example.com"]
+# methods = ["GET"]
+# paths = ["/v1/resource/*"]
 "#;
 
 #[derive(Debug, Serialize)]
@@ -66,15 +71,11 @@ pub fn handle_agent_init_command(
     silent: bool,
     json: bool,
 ) -> Result<()> {
-    validate_profile_name(&command.profile)?;
-    let directory = if command.global {
-        global_agent_profiles_dir()?
-    } else {
-        env::current_dir()
-            .context("Could not determine the current directory for the agent profile.")?
-            .join(DIRECTORY_AGENT_PROFILES_DIR)
+    let Some(profile) = command.profile else {
+        return run_interactive(command.global, command.force, json);
     };
-    let path = directory.join(format!("{}.toml", command.profile));
+    validate_profile_name(&profile)?;
+    let path = profile_path(&profile, command.global)?;
     let existed = path.exists();
     if existed && !command.force {
         bail!(
@@ -82,23 +83,11 @@ pub fn handle_agent_init_command(
             path.display()
         );
     }
-
-    fs::create_dir_all(&directory).with_context(|| {
-        format!(
-            "Could not create agent profiles directory '{}'.",
-            directory.display()
-        )
-    })?;
-    fs::write(&path, PROFILE_TEMPLATE)
-        .with_context(|| format!("Could not write agent profile '{}'.", path.display()))?;
+    write_profile(&path, PROFILE_TEMPLATE)?;
 
     let report = AgentInitReport {
-        profile: command.profile,
-        path: if command.global {
-            display_global_path(&path)
-        } else {
-            display_path(&path)
-        },
+        profile,
+        path: shown_path(&path, command.global),
         overwritten: existed,
     };
     if !silent {
@@ -112,6 +101,74 @@ pub fn handle_agent_init_command(
         println!("Created agent profile: {}", report.path);
     }
     Ok(())
+}
+
+fn run_interactive(global: bool, force: bool, json: bool) -> Result<()> {
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    if json || !interactive {
+        bail!(
+            "Interactive setup needs a terminal. Pass a profile name to write a starter template: \
+             stashbase agent init <PROFILE>"
+        );
+    }
+    let outcome = run_wizard(WizardTargets {
+        preset_global: global,
+        force,
+        resolve: &profile_path,
+        display: &shown_path,
+        validate_name: &validate_profile_name,
+    })?;
+    let Some(outcome) = outcome else {
+        let _ = dialoguer::console::Term::stdout().show_cursor();
+        println!("Cancelled. No profile was written.");
+        return Ok(());
+    };
+    write_profile(&outcome.path, &outcome.contents)?;
+    let shown = shown_path(&outcome.path, outcome.global);
+    let verb = if outcome.overwrite {
+        "Replaced"
+    } else {
+        "Created"
+    };
+    println!("{verb} agent profile: {shown}");
+    println!("Edit it any time to add rules, MCP servers or hooks.");
+    println!(
+        "\nStart the agent:\n  stashbase agent run --profile {} -- {}",
+        outcome.profile, outcome.agent_command
+    );
+    Ok(())
+}
+
+fn profile_path(profile: &str, global: bool) -> Result<PathBuf> {
+    let directory = if global {
+        global_agent_profiles_dir()?
+    } else {
+        env::current_dir()
+            .context("Could not determine the current directory for the agent profile.")?
+            .join(DIRECTORY_AGENT_PROFILES_DIR)
+    };
+    Ok(directory.join(format!("{profile}.toml")))
+}
+
+fn shown_path(path: &Path, global: bool) -> String {
+    if global {
+        display_global_path(path)
+    } else {
+        display_path(path)
+    }
+}
+
+fn write_profile(path: &Path, contents: &str) -> Result<()> {
+    if let Some(directory) = path.parent() {
+        fs::create_dir_all(directory).with_context(|| {
+            format!(
+                "Could not create agent profiles directory '{}'.",
+                directory.display()
+            )
+        })?;
+    }
+    fs::write(path, contents)
+        .with_context(|| format!("Could not write agent profile '{}'.", path.display()))
 }
 
 fn validate_profile_name(name: &str) -> Result<()> {
@@ -146,8 +203,36 @@ mod tests {
         assert!(
             PROFILE_TEMPLATE.contains("# allow_hooks = [\"dependency_check\", \"secret_scan\"]")
         );
-        assert!(PROFILE_TEMPLATE.contains("[secrets.SECRET_NAME]"));
-        assert!(PROFILE_TEMPLATE.contains("[[secrets.SECRET_NAME.rules]]"));
+        assert!(PROFILE_TEMPLATE.contains("# [secrets.SECRET_NAME]"));
+        assert!(PROFILE_TEMPLATE.contains("# [[secrets.SECRET_NAME.rules]]"));
+    }
+
+    #[test]
+    fn template_parses_without_placeholder_secrets() {
+        let profile: crate::models::agent::AgentProfile = toml::from_str(PROFILE_TEMPLATE).unwrap();
+        assert!(profile.secrets.bindings.is_empty());
+    }
+
+    #[test]
+    fn template_secret_example_is_valid_when_uncommented() {
+        let uncommented: String = PROFILE_TEMPLATE
+            .lines()
+            .map(|line| match line.strip_prefix("# ") {
+                Some(rest)
+                    if rest.starts_with("[secrets.")
+                        || rest.starts_with("[[secrets.")
+                        || ["effect", "hosts", "methods", "paths"]
+                            .iter()
+                            .any(|key| rest.starts_with(&format!("{key} ="))) =>
+                {
+                    rest
+                }
+                _ => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let profile: crate::models::agent::AgentProfile = toml::from_str(&uncommented).unwrap();
+        assert_eq!(profile.secrets.bindings["SECRET_NAME"].rules.len(), 1);
     }
 
     #[test]

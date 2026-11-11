@@ -5,6 +5,7 @@ pub mod doctor;
 pub mod env_check;
 pub mod explain;
 pub mod init;
+pub mod init_wizard;
 pub mod mcp;
 pub mod policy;
 pub mod policy_test;
