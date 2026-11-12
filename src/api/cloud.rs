@@ -158,3 +158,22 @@ pub async fn destroy(api_key: &str, id: &str, json: bool) -> Result<Machine> {
     )
     .await
 }
+
+/// Asks the backend to install this public key on a running machine.
+pub async fn authorize_key(
+    api_key: &str,
+    id: &str,
+    ssh_public_key: &str,
+    json: bool,
+) -> Result<()> {
+    let body = serde_json::json!({ "sshPublicKey": ssh_public_key });
+    send::<serde_json::Value>(
+        http_client()?
+            .post(url(&format!("/{id}/authorize-key")))
+            .bearer_auth(api_key)
+            .json(&body),
+        json,
+    )
+    .await?;
+    Ok(())
+}

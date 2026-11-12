@@ -225,11 +225,10 @@ async fn pick_or_create(api_key: &str, json: bool, silent: bool) -> Result<Strin
         );
     }
     let machines = cloud::list(api_key, json).await?;
-    // A machine created on another computer has no key here, so it cannot be used.
+    // A machine without a key from this CLI gets one added when you connect.
     let usable: Vec<Machine> = machines
         .into_iter()
         .filter(|m| matches!(m.state.as_str(), "running" | "stopped"))
-        .filter(|m| key_path(&m.id).map(|path| path.is_file()).unwrap_or(false))
         .collect();
     if usable.is_empty() {
         if !silent {
@@ -274,9 +273,6 @@ async fn connect(
 ) -> Result<()> {
     validate_id(id)?;
     let key = key_path(id)?;
-    if !key.is_file() {
-        bail!("No local key for cloud machine {id}; it was created on another computer.");
-    }
     let machines = cloud::list(api_key, json).await?;
     let machine = machines
         .into_iter()
@@ -296,6 +292,19 @@ async fn connect(
         other => bail!("Cloud machine {id} is {other}; try again shortly."),
     };
     let ip = machine.ip.context("The machine has no address yet.")?;
+    // A machine launched elsewhere (for example from the dashboard without a key) has no key
+    // from this CLI: make one and have the backend install it on the running machine.
+    if !key.is_file() {
+        let dir = keys_dir()?.join(id);
+        let public_key = generate_key(&dir)?;
+        if let Err(error) = cloud::authorize_key(api_key, id, &public_key, json).await {
+            let _ = fs::remove_dir_all(&dir);
+            return Err(error);
+        }
+        if !silent && !json {
+            eprintln!("Added a key for this computer to the machine.");
+        }
+    }
     // The VM is new each time and addressed by IP, so host-key prompts add
     // nothing; retry the connection while sshd comes up.
     let mut ssh = Command::new("ssh");
