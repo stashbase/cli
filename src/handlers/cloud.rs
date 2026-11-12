@@ -333,7 +333,7 @@ async fn connect(
         // dashboard terminal uses, so both show the same running programs. Without tmux, a
         // plain login shell.
         ssh.arg("-t").arg(
-            "sh -c 'if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s main; else exec \"$SHELL\" -l; fi'",
+            "sh -c 'infocmp \"$TERM\" >/dev/null 2>&1 || TERM=xterm-256color; export TERM; if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s main; else exec \"$SHELL\" -l; fi'",
         );
     }
     let status = ssh
