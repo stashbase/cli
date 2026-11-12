@@ -148,7 +148,29 @@ async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machi
     let public_key = generate_key(&pending)?;
     let mut spinner =
         (!silent && !json).then(|| new_spinner("Creating the cloud machine...", Streams::Stderr));
-    let result = cloud::create(api_key, &public_key, json).await;
+    let known: Vec<String> = cloud::list(api_key, json)
+        .await
+        .map(|machines| machines.into_iter().map(|m| m.id).collect())
+        .unwrap_or_default();
+    let mut result = cloud::create(api_key, &public_key, json).await;
+    if result.is_err() {
+        // The server may drop the request while the VM is still being created:
+        // look for the new machine instead of failing.
+        for _ in 0..36 {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let Ok(machines) = cloud::list(api_key, json).await else {
+                continue;
+            };
+            if let Some(found) = machines.into_iter().find(|m| !known.contains(&m.id)) {
+                match found.state.as_str() {
+                    "running" => result = Ok(found),
+                    "creating" => continue,
+                    _ => {}
+                }
+                break;
+            }
+        }
+    }
     if let Some(mut spinner) = spinner.take() {
         spinner.clear();
     }
