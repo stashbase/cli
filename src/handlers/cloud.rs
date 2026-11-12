@@ -328,6 +328,13 @@ async fn connect(
             .collect::<Vec<_>>()
             .join(" ");
         ssh.arg(remote);
+    } else if std::io::stdin().is_terminal() {
+        // An interactive shell attaches to the machine's shared tmux session, the same one the
+        // dashboard terminal uses, so both show the same running programs. Without tmux, a
+        // plain login shell.
+        ssh.arg("-t").arg(
+            "sh -c 'if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s main; else exec \"$SHELL\" -l; fi'",
+        );
     }
     let status = ssh
         .status()
