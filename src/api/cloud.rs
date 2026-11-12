@@ -92,12 +92,13 @@ pub async fn setup_status(api_key: &str, json: bool) -> Result<SetupStatus> {
     send(http_client()?.get(url("/setup")).bearer_auth(api_key), json).await
 }
 
-pub async fn setup_start(api_key: &str, json: bool) -> Result<SetupStatus> {
-    send(
-        http_client()?.post(url("/setup")).bearer_auth(api_key),
-        json,
-    )
-    .await
+pub async fn setup_start(api_key: &str, rebuild: bool, json: bool) -> Result<SetupStatus> {
+    let path = if rebuild {
+        "/setup?rebuild=true"
+    } else {
+        "/setup"
+    };
+    send(http_client()?.post(url(path)).bearer_auth(api_key), json).await
 }
 
 pub async fn set_profile(api_key: &str, toml: &str, json: bool) -> Result<serde_json::Value> {

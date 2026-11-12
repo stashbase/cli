@@ -28,8 +28,12 @@ pub enum CloudSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud setup")]
-pub struct CloudSetup {}
+#[command(override_usage = "agent cloud setup [--rebuild]")]
+pub struct CloudSetup {
+    /// Build a new image even though one is ready (for example after the API address changed)
+    #[arg(long)]
+    pub rebuild: bool,
+}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "agent cloud profile <FILE>")]

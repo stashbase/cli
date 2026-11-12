@@ -28,7 +28,7 @@ pub async fn handle_cloud_command(
     silent: bool,
 ) -> Result<()> {
     match cmd.subcommand {
-        CloudSubcommand::Setup(_) => setup(&api_key, json, silent).await,
+        CloudSubcommand::Setup(args) => setup(&api_key, args.rebuild, json, silent).await,
         CloudSubcommand::Profile(args) => profile(&api_key, &args.file, json, silent).await,
         CloudSubcommand::Create(_) => create(&api_key, json, silent).await,
         CloudSubcommand::List(_) => list(&api_key, json).await,
@@ -87,8 +87,8 @@ fn generate_key(dir: &Path) -> Result<String> {
 }
 
 /// Starts the one-time image preparation (or joins one in progress) and waits.
-async fn setup(api_key: &str, json: bool, silent: bool) -> Result<()> {
-    let mut status = cloud::setup_start(api_key, json).await?;
+async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result<()> {
+    let mut status = cloud::setup_start(api_key, rebuild, json).await?;
     if !status.required {
         if !silent && !json {
             println!("No setup is needed for this deployment.");
