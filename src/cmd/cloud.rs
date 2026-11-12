@@ -9,21 +9,34 @@ pub struct CloudCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum CloudSubcommand {
-    /// Create a cloud session
+    /// Create a cloud machine
     Create(CloudCreate),
-    /// List your active cloud sessions
+    /// List your cloud machines
     List(CloudList),
     /// Run on a cloud machine: pick an existing one or create a new one
     Run(CloudRun),
-    /// Open a shell in a cloud session over SSH
+    /// Open a shell on a cloud machine over SSH
     Ssh(CloudSsh),
-    /// Stop a cloud session's machine; `run` or `ssh` starts it again
+    /// Stop a cloud machine, keeping its disk; `run` or `ssh` starts it again
     Stop(CloudStop),
-    /// Delete a cloud session and its machine for good
+    /// Delete a cloud machine and its disk for good
     Delete(CloudDelete),
-    /// SSH `ProxyCommand` helper; used by `cloud ssh`
-    #[command(hide = true)]
-    Tunnel(CloudTunnel),
+    /// Prepare the shared machine image (workspace owner; once per deployment)
+    Setup(CloudSetup),
+    /// Set the workspace machine profile from a TOML file (workspace owner)
+    Profile(CloudProfile),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "agent cloud setup")]
+pub struct CloudSetup {}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "agent cloud profile <FILE>")]
+pub struct CloudProfile {
+    /// TOML profile with egress_hosts, deny_hosts and secret bindings
+    #[arg(value_name = "FILE")]
+    pub file: std::path::PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -66,12 +79,6 @@ pub struct CloudStop {
 #[command(override_usage = "agent cloud delete <ID>")]
 pub struct CloudDelete {
     /// Cloud session to delete
-    #[arg(value_name = "ID")]
-    pub id: String,
-}
-
-#[derive(Debug, Args)]
-pub struct CloudTunnel {
     #[arg(value_name = "ID")]
     pub id: String,
 }

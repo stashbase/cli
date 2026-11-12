@@ -7,26 +7,41 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CloudSession {
+#[serde(rename_all = "camelCase")]
+pub struct Machine {
     pub id: String,
-    pub status: String,
-    pub isolation: String,
-    pub expires_at: String,
-    /// Set while the machine is stopped.
+    /// creating, running, stopping, stopped, resuming, error or deleted.
+    pub state: String,
     #[serde(default)]
-    pub stopped_at: Option<String>,
+    pub ip: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CloudAttach {
-    pub tunnel_token: String,
-    pub ssh_user: String,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetupError {
+    pub code: Option<String>,
+    pub message: Option<String>,
 }
 
-/// No profile yet: the backend creates a plain sandbox without an Agent Proxy session.
-#[derive(Serialize)]
-struct CreateCloudSession<'a> {
-    ssh_public_key: &'a str,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetupStatus {
+    pub required: bool,
+    /// unconfigured, preparing, ready or error.
+    pub state: String,
+    #[serde(default)]
+    pub error: Option<SetupError>,
+}
+
+#[derive(Deserialize)]
+struct Data<T> {
+    data: T,
+}
+
+#[derive(Deserialize)]
+struct PlainError {
+    code: Option<String>,
+    message: Option<String>,
 }
 
 fn http_client() -> Result<reqwest::Client> {
@@ -35,7 +50,10 @@ fn http_client() -> Result<reqwest::Client> {
         .build()?)
 }
 
-async fn send(request: reqwest::RequestBuilder, json_format: bool) -> Result<reqwest::Response> {
+async fn send<T: serde::de::DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+    json_format: bool,
+) -> Result<T> {
     let response = match request.send().await {
         Ok(response) => response,
         Err(error) => {
@@ -47,74 +65,95 @@ async fn send(request: reqwest::RequestBuilder, json_format: bool) -> Result<req
             bail!(output_error.format_error_output(json_format)?);
         }
     };
-    if response.status().is_success() {
-        return Ok(response);
-    }
     let status = response.status();
-    match response.json::<ApiErrorResponse>().await {
-        Ok(body) => {
-            let error = OutputError::from(body.error).with_status(Some(status.as_u16()));
-            bail!(error.format_error_output(json_format)?)
-        }
-        Err(_) => bail!("Request failed with status {status}."),
+    if status.is_success() {
+        let body: Data<T> = response.json().await.context("invalid cloud response")?;
+        return Ok(body.data);
     }
+    let text = response.text().await.unwrap_or_default();
+    if let Ok(body) = serde_json::from_str::<ApiErrorResponse>(&text) {
+        let error = OutputError::from(body.error).with_status(Some(status.as_u16()));
+        bail!(error.format_error_output(json_format)?)
+    }
+    if let Ok(PlainError { code, message }) = serde_json::from_str::<PlainError>(&text) {
+        bail!(
+            "{} ({status})",
+            code.or(message).unwrap_or_else(|| "request failed".into())
+        )
+    }
+    bail!("Request failed with status {status}.")
 }
 
 fn url(path: &str) -> String {
-    format!("{}{}", client::get_api_url(), path)
+    format!("{}/v1/cloud/machines{}", client::get_api_url(), path)
 }
 
-pub async fn create(
-    api_key: &str,
-    ssh_public_key: &str,
-    json_format: bool,
-) -> Result<CloudSession> {
-    let body = CreateCloudSession { ssh_public_key };
-    let request = http_client()?
-        .post(url("/v1/cloud/sessions"))
-        .bearer_auth(api_key)
-        .json(&body);
-    send(request, json_format)
-        .await?
-        .json()
-        .await
-        .context("invalid cloud session response")
+pub async fn setup_status(api_key: &str, json: bool) -> Result<SetupStatus> {
+    send(http_client()?.get(url("/setup")).bearer_auth(api_key), json).await
 }
 
-pub async fn list(api_key: &str, json_format: bool) -> Result<Vec<CloudSession>> {
-    let request = http_client()?
-        .get(url("/v1/cloud/sessions"))
-        .bearer_auth(api_key);
-    send(request, json_format)
-        .await?
-        .json()
-        .await
-        .context("invalid cloud sessions response")
+pub async fn setup_start(api_key: &str, json: bool) -> Result<SetupStatus> {
+    send(
+        http_client()?.post(url("/setup")).bearer_auth(api_key),
+        json,
+    )
+    .await
 }
 
-pub async fn attach(api_key: &str, id: &str, json_format: bool) -> Result<CloudAttach> {
-    let request = http_client()?
-        .post(url(&format!("/v1/cloud/sessions/{id}/attach")))
-        .bearer_auth(api_key);
-    send(request, json_format)
-        .await?
-        .json()
-        .await
-        .context("invalid cloud attach response")
+pub async fn set_profile(api_key: &str, toml: &str, json: bool) -> Result<serde_json::Value> {
+    let body = serde_json::json!({ "toml": toml });
+    send(
+        http_client()?
+            .put(url("/profile"))
+            .bearer_auth(api_key)
+            .json(&body),
+        json,
+    )
+    .await
 }
 
-pub async fn stop(api_key: &str, id: &str, json_format: bool) -> Result<()> {
-    let request = http_client()?
-        .post(url(&format!("/v1/cloud/sessions/{id}/stop")))
-        .bearer_auth(api_key);
-    send(request, json_format).await?;
-    Ok(())
+pub async fn create(api_key: &str, ssh_public_key: &str, json: bool) -> Result<Machine> {
+    let body = serde_json::json!({ "sshPublicKey": ssh_public_key });
+    send(
+        http_client()?
+            .post(url(""))
+            .bearer_auth(api_key)
+            .json(&body),
+        json,
+    )
+    .await
 }
 
-pub async fn destroy(api_key: &str, id: &str, json_format: bool) -> Result<()> {
-    let request = http_client()?
-        .delete(url(&format!("/v1/cloud/sessions/{id}")))
-        .bearer_auth(api_key);
-    send(request, json_format).await?;
-    Ok(())
+pub async fn list(api_key: &str, json: bool) -> Result<Vec<Machine>> {
+    send(http_client()?.get(url("")).bearer_auth(api_key), json).await
+}
+
+pub async fn resume(api_key: &str, id: &str, json: bool) -> Result<Machine> {
+    send(
+        http_client()?
+            .post(url(&format!("/{id}/resume")))
+            .bearer_auth(api_key),
+        json,
+    )
+    .await
+}
+
+pub async fn stop(api_key: &str, id: &str, json: bool) -> Result<Machine> {
+    send(
+        http_client()?
+            .post(url(&format!("/{id}/stop")))
+            .bearer_auth(api_key),
+        json,
+    )
+    .await
+}
+
+pub async fn destroy(api_key: &str, id: &str, json: bool) -> Result<Machine> {
+    send(
+        http_client()?
+            .delete(url(&format!("/{id}")))
+            .bearer_auth(api_key),
+        json,
+    )
+    .await
 }

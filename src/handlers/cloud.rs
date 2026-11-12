@@ -1,6 +1,5 @@
-//! `stashbase agent cloud create|list|run|ssh|stop|delete`: managed cloud
-//! machines reached through the user's own `ssh`, tunnelled over the
-//! Stashbase API.
+//! `stashbase agent cloud setup|profile|create|list|run|ssh|stop|delete`: managed
+//! cloud machines reached directly through the user's own `ssh`.
 
 use std::{
     fs,
@@ -11,15 +10,9 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
-use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
 use crate::{
-    api::{
-        client,
-        cloud::{self, CloudSession},
-    },
+    api::cloud::{self, Machine},
     cmd::cloud::{CloudCommand, CloudSubcommand},
     handlers::run::entry::shell_quote,
     utils::{
@@ -28,8 +21,6 @@ use crate::{
     },
 };
 
-const TUNNEL_TOKEN_ENV: &str = "STASHBASE_CLOUD_TUNNEL_TOKEN";
-
 pub async fn handle_cloud_command(
     cmd: CloudCommand,
     api_key: String,
@@ -37,13 +28,14 @@ pub async fn handle_cloud_command(
     silent: bool,
 ) -> Result<()> {
     match cmd.subcommand {
+        CloudSubcommand::Setup(_) => setup(&api_key, json, silent).await,
+        CloudSubcommand::Profile(args) => profile(&api_key, &args.file, json, silent).await,
         CloudSubcommand::Create(_) => create(&api_key, json, silent).await,
         CloudSubcommand::List(_) => list(&api_key, json).await,
         CloudSubcommand::Run(args) => run(&api_key, args.id, args.command, json, silent).await,
         CloudSubcommand::Ssh(args) => connect(&api_key, &args.id, &[], json, silent).await,
         CloudSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
         CloudSubcommand::Delete(args) => delete(&api_key, &args.id, json, silent).await,
-        CloudSubcommand::Tunnel(args) => tunnel(&args.id).await,
     }
 }
 
@@ -60,7 +52,7 @@ fn validate_id(id: &str) -> Result<()> {
     if id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
         Ok(())
     } else {
-        bail!("'{id}' is not a cloud session id.")
+        bail!("'{id}' is not a cloud machine id.")
     }
 }
 
@@ -94,9 +86,63 @@ fn generate_key(dir: &Path) -> Result<String> {
     }
 }
 
+/// Starts the one-time image preparation (or joins one in progress) and waits.
+async fn setup(api_key: &str, json: bool, silent: bool) -> Result<()> {
+    let mut status = cloud::setup_start(api_key, json).await?;
+    if !status.required {
+        if !silent && !json {
+            println!("No setup is needed for this deployment.");
+        }
+        return Ok(());
+    }
+    let mut spinner = (!silent && !json).then(|| {
+        new_spinner(
+            "Preparing the machine image (5-15 minutes)...",
+            Streams::Stderr,
+        )
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60 * 50);
+    while status.state == "preparing" && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        status = cloud::setup_status(api_key, json).await?;
+    }
+    if let Some(mut spinner) = spinner.take() {
+        spinner.clear();
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&status)?);
+    }
+    match status.state.as_str() {
+        "ready" => {
+            if !silent && !json {
+                println!("The machine image is ready. Create a machine with: stashbase agent cloud create");
+            }
+            Ok(())
+        }
+        "error" => bail!(
+            "Setup failed: {}. Run `stashbase agent cloud setup` to retry.",
+            status
+                .error
+                .and_then(|e| e.message.or(e.code))
+                .unwrap_or_else(|| "unknown error".into())
+        ),
+        _ => bail!("Setup is still running; run `stashbase agent cloud setup` to keep waiting."),
+    }
+}
+
+async fn profile(api_key: &str, file: &Path, json: bool, silent: bool) -> Result<()> {
+    let toml =
+        fs::read_to_string(file).with_context(|| format!("Could not read {}.", file.display()))?;
+    cloud::set_profile(api_key, &toml, json).await?;
+    if !silent && !json {
+        println!("Workspace machine profile updated.");
+    }
+    Ok(())
+}
+
 /// Creates a machine and keeps its key locally. The request takes a while,
 /// so a spinner shows progress unless output is suppressed.
-async fn create_session(api_key: &str, json: bool, silent: bool) -> Result<CloudSession> {
+async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machine> {
     let keys = keys_dir()?;
     let pending = keys.join(format!("pending-{}", uuid::Uuid::new_v4()));
     let public_key = generate_key(&pending)?;
@@ -106,79 +152,77 @@ async fn create_session(api_key: &str, json: bool, silent: bool) -> Result<Cloud
     if let Some(mut spinner) = spinner.take() {
         spinner.clear();
     }
-    let session = match result {
-        Ok(session) => session,
+    let machine = match result {
+        Ok(machine) => machine,
         Err(error) => {
             let _ = fs::remove_dir_all(&pending);
             return Err(error);
         }
     };
-    fs::rename(&pending, keys.join(&session.id))?;
-    Ok(session)
+    fs::rename(&pending, keys.join(&machine.id))?;
+    Ok(machine)
 }
 
 async fn create(api_key: &str, json: bool, silent: bool) -> Result<()> {
-    let session = create_session(api_key, json, silent).await?;
+    let machine = create_machine(api_key, json, silent).await?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&session)?);
+        println!("{}", serde_json::to_string_pretty(&machine)?);
     } else if !silent {
-        println!("Created cloud session {}", session.id);
-        println!("Connect with: stashbase agent cloud run {}", session.id);
+        println!("Created cloud machine {}", machine.id);
+        println!("Connect with: stashbase agent cloud run {}", machine.id);
     }
     Ok(())
 }
 
 async fn list(api_key: &str, json: bool) -> Result<()> {
-    let sessions = cloud::list(api_key, json).await?;
+    let machines = cloud::list(api_key, json).await?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&sessions)?);
-    } else if sessions.is_empty() {
-        println!("No cloud sessions.");
+        println!("{}", serde_json::to_string_pretty(&machines)?);
+    } else if machines.is_empty() {
+        println!("No cloud machines.");
     } else {
-        for session in sessions {
+        for m in machines.iter().filter(|m| m.state != "deleted") {
             println!(
-                "{}  {:<12}  expires {}",
-                session.id, session.status, session.expires_at
+                "{}  {:<10}  {}",
+                m.id,
+                m.state,
+                m.ip.as_deref().unwrap_or("-")
             );
         }
     }
     Ok(())
 }
 
-fn picker_label(session: &CloudSession) -> String {
-    format!(
-        "{}  {:<8}  expires {}",
-        session.id, session.status, session.expires_at
-    )
-}
-
-/// Asks which machine to run on: one of the user's existing machines (ready
-/// or stopped, with a key on this computer), or a new one.
+/// Asks which machine to run on: one of the user's existing machines (with a
+/// key on this computer), or a new one.
 async fn pick_or_create(api_key: &str, json: bool, silent: bool) -> Result<String> {
     if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         bail!(
-            "Pass a session ID, or run in a terminal to pick a machine. \
+            "Pass a machine ID, or run in a terminal to pick a machine. \
              List machines with `stashbase agent cloud list`."
         );
     }
-    let sessions = cloud::list(api_key, json).await?;
+    let machines = cloud::list(api_key, json).await?;
     // A machine created on another computer has no key here, so it cannot be used.
-    let usable: Vec<CloudSession> = sessions
+    let usable: Vec<Machine> = machines
         .into_iter()
-        .filter(|s| matches!(s.status.as_str(), "ready" | "stopped"))
-        .filter(|s| key_path(&s.id).map(|path| path.is_file()).unwrap_or(false))
+        .filter(|m| matches!(m.state.as_str(), "running" | "stopped"))
+        .filter(|m| key_path(&m.id).map(|path| path.is_file()).unwrap_or(false))
         .collect();
     if usable.is_empty() {
         if !silent {
             eprintln!("No existing cloud machines; creating a new one.");
         }
-        return Ok(create_session(api_key, json, silent).await?.id);
+        return Ok(create_machine(api_key, json, silent).await?.id);
     }
-    let mut labels: Vec<String> = usable.iter().map(picker_label).collect();
+    let mut labels: Vec<String> = usable
+        .iter()
+        .map(|m| format!("{}  {:<8}", m.id, m.state))
+        .collect();
     labels.push("Create a new machine".to_string());
     match select("Run on which cloud machine?", labels) {
         Some(index) if index < usable.len() => Ok(usable[index].id.clone()),
-        Some(_) => Ok(create_session(api_key, json, silent).await?.id),
+        Some(_) => Ok(create_machine(api_key, json, silent).await?.id),
         None => bail!("Cancelled."),
     }
 }
@@ -197,7 +241,7 @@ async fn run(
     connect(api_key, &id, &command, json, silent).await
 }
 
-/// Starts the machine if it is stopped, then opens an interactive shell, or
+/// Resumes the machine if it is stopped, then opens an interactive shell, or
 /// runs `command` there, through the user's own `ssh`.
 async fn connect(
     api_key: &str,
@@ -209,23 +253,29 @@ async fn connect(
     validate_id(id)?;
     let key = key_path(id)?;
     if !key.is_file() {
-        bail!("No local key for cloud session {id}; it was created on another machine.");
+        bail!("No local key for cloud machine {id}; it was created on another computer.");
     }
-    // Attaching starts a stopped machine, which can take a while.
-    let mut spinner =
-        (!silent && !json).then(|| new_spinner("Starting the machine...", Streams::Stderr));
-    let attach = cloud::attach(api_key, id, json).await;
-    if let Some(mut spinner) = spinner.take() {
-        spinner.clear();
-    }
-    let attach = attach?;
-    let exe = std::env::current_exe().context("Could not locate the stashbase binary.")?;
-    let proxy = format!(
-        "{} agent cloud tunnel {id}",
-        shell_quote(&exe.to_string_lossy())
-    );
-    // The key is a throwaway for this session and the host is reached through
-    // an authenticated tunnel, so host-key prompts add nothing here.
+    let machines = cloud::list(api_key, json).await?;
+    let machine = machines
+        .into_iter()
+        .find(|m| m.id == id)
+        .with_context(|| format!("No cloud machine {id}."))?;
+    let machine = match machine.state.as_str() {
+        "running" => machine,
+        "stopped" | "error" => {
+            let mut spinner =
+                (!silent && !json).then(|| new_spinner("Starting the machine...", Streams::Stderr));
+            let resumed = cloud::resume(api_key, id, json).await;
+            if let Some(mut spinner) = spinner.take() {
+                spinner.clear();
+            }
+            resumed?
+        }
+        other => bail!("Cloud machine {id} is {other}; try again shortly."),
+    };
+    let ip = machine.ip.context("The machine has no address yet.")?;
+    // The VM is new each time and addressed by IP, so host-key prompts add
+    // nothing; retry the connection while sshd comes up.
     let mut ssh = Command::new("ssh");
     ssh.arg("-i")
         .arg(&key)
@@ -233,13 +283,12 @@ async fn connect(
         .args(["-o", "StrictHostKeyChecking=no"])
         .args(["-o", "UserKnownHostsFile=/dev/null"])
         .args(["-o", "LogLevel=ERROR"])
-        .arg("-o")
-        .arg(format!("ProxyCommand={proxy}"));
+        .args(["-o", "ConnectTimeout=10"])
+        .args(["-o", "ConnectionAttempts=30"]);
     if !command.is_empty() && std::io::stdin().is_terminal() {
-        // A command in a terminal gets one, so interactive programs work.
         ssh.arg("-t");
     }
-    ssh.arg(format!("{}@cloud-{id}", attach.ssh_user));
+    ssh.arg(format!("agent@{ip}"));
     if !command.is_empty() {
         // ssh passes one string to the remote shell, so quote each argument.
         let remote = command
@@ -250,7 +299,6 @@ async fn connect(
         ssh.arg(remote);
     }
     let status = ssh
-        .env(TUNNEL_TOKEN_ENV, &attach.tunnel_token)
         .status()
         .context("`ssh` was not found on this machine.")?;
     if !status.success() {
@@ -264,7 +312,7 @@ async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     cloud::stop(api_key, id, json).await?;
     // The key stays: `run` or `ssh` starts the machine again.
     if !silent && !json {
-        println!("Stopped cloud session {id}");
+        println!("Stopped cloud machine {id}");
         println!("Start it again with: stashbase agent cloud run {id}");
     }
     Ok(())
@@ -275,51 +323,7 @@ async fn delete(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()>
     cloud::destroy(api_key, id, json).await?;
     let _ = fs::remove_dir_all(keys_dir()?.join(id));
     if !silent && !json {
-        println!("Deleted cloud session {id}");
-    }
-    Ok(())
-}
-
-/// Bridges stdin/stdout to the API tunnel WebSocket so `ssh` can use it as a
-/// `ProxyCommand`.
-async fn tunnel(id: &str) -> Result<()> {
-    validate_id(id)?;
-    let token = std::env::var(TUNNEL_TOKEN_ENV).context("Missing tunnel token.")?;
-    let base = client::get_api_url()
-        .replacen("https://", "wss://", 1)
-        .replacen("http://", "ws://", 1);
-    let mut request = format!("{base}/v1/cloud/sessions/{id}/tunnel").into_client_request()?;
-    request
-        .headers_mut()
-        .insert("x-stashbase-tunnel-token", token.parse()?);
-    let (socket, _) = tokio_tungstenite::connect_async(request)
-        .await
-        .context("Could not open the tunnel to the cloud session.")?;
-    let (mut write, mut read) = socket.split();
-
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
-    let mut buffer = vec![0u8; 16 * 1024];
-    loop {
-        tokio::select! {
-            count = stdin.read(&mut buffer) => {
-                let count = count?;
-                if count == 0 {
-                    let _ = write.send(Message::Close(None)).await;
-                    break;
-                }
-                write.send(Message::Binary(buffer[..count].to_vec().into())).await?;
-            }
-            message = read.next() => match message {
-                Some(Ok(Message::Binary(data))) => {
-                    stdout.write_all(&data).await?;
-                    stdout.flush().await?;
-                }
-                Some(Ok(Message::Close(_))) | None => break,
-                Some(Ok(_)) => {}
-                Some(Err(error)) => return Err(error.into()),
-            }
-        }
+        println!("Deleted cloud machine {id}");
     }
     Ok(())
 }
