@@ -159,21 +159,30 @@ pub async fn destroy(api_key: &str, id: &str, json: bool) -> Result<Machine> {
     .await
 }
 
-/// Asks the backend to install this public key on a running machine.
-pub async fn authorize_key(
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Certificate {
+    /// A short-lived SSH certificate for the public key, valid for this machine only.
+    pub certificate: String,
+    /// The machine's SSH host key, as it reported it, for strict host key checking.
+    pub host_key: String,
+    pub ip: String,
+}
+
+/// Asks the backend to certify this public key for a running machine.
+pub async fn certificate(
     api_key: &str,
     id: &str,
     ssh_public_key: &str,
     json: bool,
-) -> Result<()> {
+) -> Result<Certificate> {
     let body = serde_json::json!({ "sshPublicKey": ssh_public_key });
-    send::<serde_json::Value>(
+    send(
         http_client()?
-            .post(url(&format!("/{id}/authorize-key")))
+            .post(url(&format!("/{id}/certificate")))
             .bearer_auth(api_key)
             .json(&body),
         json,
     )
-    .await?;
-    Ok(())
+    .await
 }

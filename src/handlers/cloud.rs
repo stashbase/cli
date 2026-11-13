@@ -90,6 +90,17 @@ fn generate_key(dir: &Path) -> Result<String> {
     }
 }
 
+/// The `<type> <base64>` public key of the key pair in `dir`.
+fn read_public_key(dir: &Path) -> Result<String> {
+    let public = fs::read_to_string(dir.join("id_ed25519.pub"))
+        .context("Could not read this computer's key for the machine.")?;
+    let mut parts = public.split_whitespace();
+    match (parts.next(), parts.next()) {
+        (Some(kind), Some(data)) => Ok(format!("{kind} {data}")),
+        _ => bail!("Could not read this computer's key for the machine."),
+    }
+}
+
 /// Starts the one-time image preparation (or joins one in progress) and waits.
 async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result<()> {
     let mut status = cloud::setup_start(api_key, rebuild, json).await?;
@@ -298,34 +309,77 @@ async fn connect(
         other => bail!("Cloud machine {id} is {other}; try again shortly."),
     };
     let ip = machine.ip.context("The machine has no address yet.")?;
-    // A machine launched elsewhere (for example from the dashboard without a key) has no key
-    // from this CLI: make one and have the backend install it on the running machine.
-    if !key.is_file() {
-        let dir = keys_dir()?.join(id);
-        let public_key = generate_key(&dir)?;
-        if let Err(error) = cloud::authorize_key(api_key, id, &public_key, json).await {
-            let _ = fs::remove_dir_all(&dir);
-            return Err(error);
-        }
-        if !silent && !json {
-            eprintln!("Added a key for this computer to the machine.");
-        }
+    // Every connection uses a short-lived certificate for this computer's key, issued by the
+    // backend for this machine only, and checks the machine's host key against the one it
+    // reported at boot. A machine launched elsewhere (for example from the dashboard without a
+    // key) gets a key made here first.
+    let dir = keys_dir()?.join(id);
+    let had_key = key.is_file();
+    if !had_key {
+        generate_key(&dir)?;
     }
-    // The VM is new each time and addressed by IP, so host-key prompts add
-    // nothing; retry the connection while sshd comes up.
+    let public_key = read_public_key(&dir)?;
+    let cert_path = dir.join("id_ed25519-cert.pub");
+    let known_hosts = dir.join("known_hosts");
+    let mut target = ip.clone();
+    let pinned = match cloud::certificate(api_key, id, &public_key, json).await {
+        Ok(issued) => {
+            fs::write(&cert_path, format!("{}\n", issued.certificate.trim()))?;
+            fs::write(
+                &known_hosts,
+                format!("{} {}\n", issued.ip, issued.host_key.trim()),
+            )?;
+            target = issued.ip;
+            true
+        }
+        Err(error) => {
+            let message = format!("{error:#}");
+            if message.contains("host_key_unavailable") {
+                if !had_key {
+                    let _ = fs::remove_dir_all(&dir);
+                }
+                bail!("The machine has not reported its host key yet. It is probably still starting; try again in a minute.");
+            }
+            // A machine created before certificate access existed can only be reached with its
+            // own key, and its host key cannot be verified.
+            if had_key && message.contains("terminal_unavailable") {
+                if !silent && !json {
+                    eprintln!(
+                        "Warning: this machine predates certificate access; its host key is not verified."
+                    );
+                }
+                false
+            } else {
+                if !had_key {
+                    let _ = fs::remove_dir_all(&dir);
+                }
+                return Err(error);
+            }
+        }
+    };
     let mut ssh = Command::new("ssh");
     ssh.arg("-i")
         .arg(&key)
         .args(["-o", "IdentitiesOnly=yes"])
-        .args(["-o", "StrictHostKeyChecking=no"])
-        .args(["-o", "UserKnownHostsFile=/dev/null"])
         .args(["-o", "LogLevel=ERROR"])
         .args(["-o", "ConnectTimeout=10"])
         .args(["-o", "ConnectionAttempts=30"]);
+    if pinned {
+        ssh.arg("-o")
+            .arg(format!("CertificateFile={}", cert_path.display()))
+            .args(["-o", "StrictHostKeyChecking=yes"])
+            .args(["-o", "GlobalKnownHostsFile=/dev/null"])
+            .args(["-o", "UpdateHostKeys=no"])
+            .arg("-o")
+            .arg(format!("UserKnownHostsFile={}", known_hosts.display()));
+    } else {
+        ssh.args(["-o", "StrictHostKeyChecking=no"])
+            .args(["-o", "UserKnownHostsFile=/dev/null"]);
+    }
     if !command.is_empty() && std::io::stdin().is_terminal() {
         ssh.arg("-t");
     }
-    ssh.arg(format!("agent@{ip}"));
+    ssh.arg(format!("agent@{target}"));
     if !command.is_empty() {
         // ssh passes one string to the remote shell, so quote each argument.
         let remote = command
