@@ -90,6 +90,39 @@ fn generate_key(dir: &Path) -> Result<String> {
     }
 }
 
+/// Asks for a certificate, waiting while a new machine is still starting up and has not
+/// reported its host key yet (about two minutes at most).
+async fn certificate_when_ready(
+    api_key: &str,
+    id: &str,
+    public_key: &str,
+    json: bool,
+    silent: bool,
+) -> Result<cloud::Certificate> {
+    let mut spinner = None;
+    let mut attempt = 0;
+    loop {
+        match cloud::certificate(api_key, id, public_key, json).await {
+            Err(error) if attempt < 24 && format!("{error:#}").contains("host_key_unavailable") => {
+                if spinner.is_none() && !silent && !json {
+                    spinner = Some(new_spinner(
+                        "Waiting for the machine to finish starting...",
+                        Streams::Stderr,
+                    ));
+                }
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            other => {
+                if let Some(mut spinner) = spinner.take() {
+                    spinner.clear();
+                }
+                return other;
+            }
+        }
+    }
+}
+
 /// The `<type> <base64>` public key of the key pair in `dir`.
 fn read_public_key(dir: &Path) -> Result<String> {
     let public = fs::read_to_string(dir.join("id_ed25519.pub"))
@@ -322,7 +355,7 @@ async fn connect(
     let cert_path = dir.join("id_ed25519-cert.pub");
     let known_hosts = dir.join("known_hosts");
     let mut target = ip.clone();
-    let pinned = match cloud::certificate(api_key, id, &public_key, json).await {
+    let pinned = match certificate_when_ready(api_key, id, &public_key, json, silent).await {
         Ok(issued) => {
             fs::write(&cert_path, format!("{}\n", issued.certificate.trim()))?;
             fs::write(
