@@ -32,8 +32,12 @@ pub async fn handle_cloud_command(
         CloudSubcommand::Profile(args) => profile(&api_key, &args.file, json, silent).await,
         CloudSubcommand::Create(_) => create(&api_key, json, silent).await,
         CloudSubcommand::List(_) => list(&api_key, json).await,
-        CloudSubcommand::Run(args) => run(&api_key, args.id, args.command, json, silent).await,
-        CloudSubcommand::Ssh(args) => connect(&api_key, &args.id, &[], json, silent).await,
+        CloudSubcommand::Run(args) => {
+            run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
+        }
+        CloudSubcommand::Ssh(args) => {
+            connect(&api_key, &args.id, &[], !args.no_tmux, json, silent).await
+        }
         CloudSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
         CloudSubcommand::Delete(args) => delete(&api_key, &args.id, json, silent).await,
     }
@@ -252,6 +256,7 @@ async fn run(
     api_key: &str,
     id: Option<String>,
     command: Vec<String>,
+    use_tmux: bool,
     json: bool,
     silent: bool,
 ) -> Result<()> {
@@ -259,7 +264,7 @@ async fn run(
         Some(id) => id,
         None => pick_or_create(api_key, json, silent).await?,
     };
-    connect(api_key, &id, &command, json, silent).await
+    connect(api_key, &id, &command, use_tmux, json, silent).await
 }
 
 /// Resumes the machine if it is stopped, then opens an interactive shell, or
@@ -268,6 +273,7 @@ async fn connect(
     api_key: &str,
     id: &str,
     command: &[String],
+    use_tmux: bool,
     json: bool,
     silent: bool,
 ) -> Result<()> {
@@ -329,12 +335,18 @@ async fn connect(
             .join(" ");
         ssh.arg(remote);
     } else if std::io::stdin().is_terminal() {
-        // An interactive shell attaches to the machine's shared tmux session, the same one the
-        // dashboard terminal uses, so both show the same running programs. Without tmux, a
-        // plain login shell.
-        ssh.arg("-t").arg(
-            "sh -c 'infocmp \"$TERM\" >/dev/null 2>&1 || TERM=xterm-256color; export TERM; if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s main; else exec \"$SHELL\" -l; fi'",
-        );
+        // An interactive shell attaches to the machine's shared tmux session by default, the
+        // same one the dashboard terminal uses, so both show the same running programs. Without
+        // tmux, or with --no-tmux, a plain login shell. Either way an unknown local terminal
+        // type falls back to xterm-256color.
+        let shell = if use_tmux {
+            "if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s main; else exec \"$SHELL\" -l; fi"
+        } else {
+            "exec \"$SHELL\" -l"
+        };
+        ssh.arg("-t").arg(format!(
+            "sh -c 'infocmp \"$TERM\" >/dev/null 2>&1 || TERM=xterm-256color; export TERM; {shell}'"
+        ));
     }
     let status = ssh
         .status()

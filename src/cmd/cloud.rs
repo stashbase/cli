@@ -52,11 +52,19 @@ pub struct CloudCreate {}
 pub struct CloudList {}
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud run [ID] [-- <COMMAND>...]")]
+#[command(override_usage = "agent cloud run [ID] [--no-tmux] [-- <COMMAND>...]")]
 pub struct CloudRun {
     /// Cloud session to use; omit to pick an existing one or create a new one
     #[arg(value_name = "ID")]
     pub id: Option<String>,
+
+    /// Open a plain login shell instead of the machine's shared tmux session
+    #[arg(long)]
+    pub no_tmux: bool,
+
+    /// Attach to the machine's shared tmux session (the default)
+    #[arg(long, conflicts_with = "no_tmux")]
+    pub tmux: bool,
 
     /// Command to run on the machine instead of an interactive shell
     #[arg(last = true, value_name = "COMMAND")]
@@ -64,11 +72,19 @@ pub struct CloudRun {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud ssh <ID>")]
+#[command(override_usage = "agent cloud ssh <ID> [--no-tmux]")]
 pub struct CloudSsh {
     /// Cloud session to connect to
     #[arg(value_name = "ID")]
     pub id: String,
+
+    /// Open a plain login shell instead of the machine's shared tmux session
+    #[arg(long)]
+    pub no_tmux: bool,
+
+    /// Attach to the machine's shared tmux session (the default)
+    #[arg(long, conflicts_with = "no_tmux")]
+    pub tmux: bool,
 }
 
 #[derive(Debug, Args)]
