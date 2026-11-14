@@ -1292,8 +1292,18 @@ fn systemd_filesystem_enforcement_error() -> Option<String> {
     if !command_in_path("systemd-run") {
         return Some("systemd-run is not available".to_owned());
     }
+    // The probe has to use a filesystem property too. A scope unit accepts none of them
+    // (`Unknown assignment: InaccessiblePaths=`), so without one this reports "available" on a
+    // machine where the real run then fails, and bubblewrap is never tried.
     let probe = std::process::Command::new("systemd-run")
-        .args(["--user", "--scope", "--quiet", "--", "/bin/true"])
+        .args([
+            "--user",
+            "--scope",
+            "--quiet",
+            "--property=InaccessiblePaths=-/nonexistent-stashbase-probe",
+            "--",
+            "/bin/true",
+        ])
         .output();
     match probe {
         Ok(output) if output.status.success() => None,
