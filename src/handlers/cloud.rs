@@ -1,4 +1,4 @@
-//! `stashbase agent vm setup|profile|create|list|run|ssh|stop|delete`: managed
+//! `stashbase vms setup|profile|create|list|connect|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -32,11 +32,8 @@ pub async fn handle_cloud_command(
         CloudSubcommand::Profile(args) => profile(&api_key, &args.file, json, silent).await,
         CloudSubcommand::Create(_) => create(&api_key, json, silent).await,
         CloudSubcommand::List(_) => list(&api_key, json).await,
-        CloudSubcommand::Run(args) => {
+        CloudSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
-        }
-        CloudSubcommand::Ssh(args) => {
-            connect(&api_key, &args.id, &[], !args.no_tmux, json, silent).await
         }
         CloudSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
         CloudSubcommand::Delete(args) => delete(&api_key, &args.id, json, silent).await,
@@ -82,7 +79,7 @@ fn machine_uuid(id: &str) -> Result<uuid::Uuid> {
             return Ok(uuid::Uuid::from_u128(value));
         }
     }
-    bail!("'{id}' is not a virtual machine id. Use a vm_ ID from `stashbase agent vm list`.")
+    bail!("'{id}' is not a virtual machine id. Use a vm_ ID from `stashbase vms list`.")
 }
 
 fn validate_id(id: &str) -> Result<()> {
@@ -192,18 +189,18 @@ async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result
     match status.state.as_str() {
         "ready" => {
             if !silent && !json {
-                println!("The machine image is ready. Create a machine with: stashbase agent vm create");
+                println!("The machine image is ready. Create a machine with: stashbase vms create");
             }
             Ok(())
         }
         "error" => bail!(
-            "Setup failed: {}. Run `stashbase agent vm setup` to retry.",
+            "Setup failed: {}. Run `stashbase vms setup` to retry.",
             status
                 .error
                 .and_then(|e| e.message.or(e.code))
                 .unwrap_or_else(|| "unknown error".into())
         ),
-        _ => bail!("Setup is still running; run `stashbase agent vm setup` to keep waiting."),
+        _ => bail!("Setup is still running; run `stashbase vms setup` to keep waiting."),
     }
 }
 
@@ -268,7 +265,7 @@ async fn create(api_key: &str, json: bool, silent: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&machine)?);
     } else if !silent {
         println!("Created virtual machine {}", machine.id);
-        println!("Connect with: stashbase agent vm run {}", machine.id);
+        println!("Connect with: stashbase vms connect {}", machine.id);
     }
     Ok(())
 }
@@ -298,7 +295,7 @@ async fn pick_or_create(api_key: &str, json: bool, silent: bool) -> Result<Strin
     if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         bail!(
             "Pass a machine ID, or run in a terminal to pick a machine. \
-             List machines with `stashbase agent vm list`."
+             List machines with `stashbase vms list`."
         );
     }
     let machines = cloud::list(api_key, json).await?;
@@ -483,7 +480,7 @@ async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     // The key stays: `run` or `ssh` starts the machine again.
     if !silent && !json {
         println!("Stopped virtual machine {id}");
-        println!("Start it again with: stashbase agent vm run {id}");
+        println!("Start it again with: stashbase vms connect {id}");
     }
     Ok(())
 }

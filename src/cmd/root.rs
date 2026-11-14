@@ -101,6 +101,10 @@ pub enum EntityType {
     /// Machines you reach over SSH
     Ssh(SshCommand),
 
+    /// Virtual machines for your agents, reached over SSH
+    #[clap(name = "vms", aliases = &["vm"])]
+    Vms(crate::cmd::cloud::CloudCommand),
+
     /// Open web dashboard
     #[clap(name = "open", aliases = &["dashboard"])]
     Open,

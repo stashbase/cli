@@ -520,8 +520,8 @@ This is a lightweight local guide. For comprehensive documentation on advanced f
 
 ### Virtual machine IDs
 
-`stashbase agent vm` commands accept the full `vm_<22-character short UUID>` shown by
-`stashbase agent vm list`, including `run`, `ssh`, `stop` and `delete`.
+`stashbase vms` commands accept the full `vm_<22-character short UUID>` shown by
+`stashbase vms list`, including `connect`, `stop` and `delete`.
 Legacy UUIDs remain accepted. Use the full ID, not a truncated prefix.
 Local SSH keys remain indexed by the decoded UUID, so existing keys are reused
 when the API switches its displayed IDs to the vm_ format.
