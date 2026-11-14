@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud <COMMAND> [OPTIONS]")]
+#[command(override_usage = "agent vm <COMMAND> [OPTIONS]")]
 pub struct CloudCommand {
     #[clap(subcommand)]
     pub subcommand: CloudSubcommand,
@@ -9,17 +9,17 @@ pub struct CloudCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum CloudSubcommand {
-    /// Create a cloud machine
+    /// Create a virtual machine
     Create(CloudCreate),
-    /// List your cloud machines
+    /// List your virtual machines
     List(CloudList),
-    /// Run on a cloud machine: pick an existing one or create a new one
+    /// Run on a virtual machine: pick an existing one or create a new one
     Run(CloudRun),
-    /// Open a shell on a cloud machine over SSH
+    /// Open a shell on a virtual machine over SSH
     Ssh(CloudSsh),
-    /// Stop a cloud machine, keeping its disk; `run` or `ssh` starts it again
+    /// Stop a virtual machine, keeping its disk; `run` or `ssh` starts it again
     Stop(CloudStop),
-    /// Delete a cloud machine and its disk for good
+    /// Delete a virtual machine and its disk for good
     Delete(CloudDelete),
     /// Prepare the shared machine image (workspace owner; once per deployment)
     Setup(CloudSetup),
@@ -28,7 +28,7 @@ pub enum CloudSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud setup [--rebuild]")]
+#[command(override_usage = "agent vm setup [--rebuild]")]
 pub struct CloudSetup {
     /// Build a new image even though one is ready (for example after the API address changed)
     #[arg(long)]
@@ -36,7 +36,7 @@ pub struct CloudSetup {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud profile <FILE>")]
+#[command(override_usage = "agent vm profile <FILE>")]
 pub struct CloudProfile {
     /// TOML profile with egress_hosts, deny_hosts and secret bindings
     #[arg(value_name = "FILE")]
@@ -44,15 +44,15 @@ pub struct CloudProfile {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud create")]
+#[command(override_usage = "agent vm create")]
 pub struct CloudCreate {}
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud list")]
+#[command(override_usage = "agent vm list")]
 pub struct CloudList {}
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud run [ID] [--no-tmux] [-- <COMMAND>...]")]
+#[command(override_usage = "agent vm run [ID] [--no-tmux] [-- <COMMAND>...]")]
 pub struct CloudRun {
     /// Machine ID (vm_… or legacy UUID) to use; omit to pick an existing one or create a new one
     #[arg(value_name = "ID")]
@@ -72,7 +72,7 @@ pub struct CloudRun {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud ssh <ID> [--no-tmux]")]
+#[command(override_usage = "agent vm ssh <ID> [--no-tmux]")]
 pub struct CloudSsh {
     /// Machine ID (vm_… or legacy UUID) to connect to
     #[arg(value_name = "ID")]
@@ -88,7 +88,7 @@ pub struct CloudSsh {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud stop <ID>")]
+#[command(override_usage = "agent vm stop <ID>")]
 pub struct CloudStop {
     /// Machine ID (vm_… or legacy UUID) to stop
     #[arg(value_name = "ID")]
@@ -96,7 +96,7 @@ pub struct CloudStop {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent cloud delete <ID>")]
+#[command(override_usage = "agent vm delete <ID>")]
 pub struct CloudDelete {
     /// Machine ID (vm_… or legacy UUID) to delete
     #[arg(value_name = "ID")]

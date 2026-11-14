@@ -793,7 +793,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                 })
                 .into_exit(),
-                AgentSubcommand::Cloud(cloud_cmd) => {
+                AgentSubcommand::Vm(cloud_cmd) => {
                     crate::handlers::cloud::handle_cloud_command(
                         cloud_cmd, api_key, raw_output, silent,
                     )

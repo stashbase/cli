@@ -47,8 +47,8 @@ pub enum AgentSubcommand {
     Allow(AgentAllowCommand),
     /// Manage Docker sandbox backend resources
     Docker(AgentDockerCommand),
-    /// Run agents in managed cloud sessions you reach over SSH
-    Cloud(crate::cmd::cloud::CloudCommand),
+    /// Run agents on virtual machines you reach over SSH
+    Vm(crate::cmd::cloud::CloudCommand),
     /// Review, merge and clean up the git worktrees `agent run --worktree` leaves behind
     Worktrees {
         #[command(subcommand)]
