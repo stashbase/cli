@@ -43,6 +43,16 @@ pub async fn handle_cloud_command(
     }
 }
 
+/// A path as an `ssh -o` value. `ssh` reads the option like a config line, so a path with a space
+/// (for example `~/Library/Application Support/...` on macOS) must be quoted.
+fn ssh_option_path(path: &Path) -> Result<String> {
+    let text = path.display().to_string();
+    if text.contains('"') || text.contains('\n') {
+        bail!("The path {text} cannot be passed to ssh");
+    }
+    Ok(format!("\"{text}\""))
+}
+
 fn keys_dir() -> Result<PathBuf> {
     let dirs = ProjectDirs::from("", "", "stashbase").context("Could not find data directory.")?;
     Ok(dirs.data_local_dir().join("cloud"))
@@ -421,12 +431,12 @@ async fn connect(
         .args(["-o", "ConnectionAttempts=30"]);
     if pinned {
         ssh.arg("-o")
-            .arg(format!("CertificateFile={}", cert_path.display()))
+            .arg(format!("CertificateFile={}", ssh_option_path(&cert_path)?))
             .args(["-o", "StrictHostKeyChecking=yes"])
             .args(["-o", "GlobalKnownHostsFile=/dev/null"])
             .args(["-o", "UpdateHostKeys=no"])
             .arg("-o")
-            .arg(format!("UserKnownHostsFile={}", known_hosts.display()));
+            .arg(format!("UserKnownHostsFile={}", ssh_option_path(&known_hosts)?));
     } else {
         ssh.args(["-o", "StrictHostKeyChecking=no"])
             .args(["-o", "UserKnownHostsFile=/dev/null"]);
