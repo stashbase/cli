@@ -49,15 +49,34 @@ fn keys_dir() -> Result<PathBuf> {
 }
 
 fn key_path(id: &str) -> Result<PathBuf> {
-    Ok(keys_dir()?.join(id).join("id_ed25519"))
+    Ok(keys_dir()?
+        .join(machine_uuid(id)?.to_string())
+        .join("id_ed25519"))
+}
+
+/// Match the backend's short-uuid default (Flickr base58), keeping local keys under
+/// the full UUID so existing machines reuse their keys after the API format changes.
+fn machine_uuid(id: &str) -> Result<uuid::Uuid> {
+    if id.len() == 36 {
+        if let Ok(value) = uuid::Uuid::parse_str(id) {
+            return Ok(value);
+        }
+    }
+    if let Some(short) = id.strip_prefix("vm_").filter(|s| s.len() == 22) {
+        const ALPHABET: &[u8] = b"123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
+        let value = short.bytes().try_fold(0_u128, |value, character| {
+            let digit = ALPHABET.iter().position(|&c| c == character)? as u128;
+            value.checked_mul(58)?.checked_add(digit)
+        });
+        if let Some(value) = value {
+            return Ok(uuid::Uuid::from_u128(value));
+        }
+    }
+    bail!("'{id}' is not a cloud machine id. Use a vm_ ID from `stashbase agent cloud list`.")
 }
 
 fn validate_id(id: &str) -> Result<()> {
-    if id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
-        Ok(())
-    } else {
-        bail!("'{id}' is not a cloud machine id.")
-    }
+    machine_uuid(id).map(|_| ())
 }
 
 /// Generates a throwaway ed25519 key with the user's own `ssh-keygen`.
@@ -229,7 +248,7 @@ async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machi
             return Err(error);
         }
     };
-    fs::rename(&pending, keys.join(&machine.id))?;
+    fs::rename(&pending, keys.join(machine_uuid(&machine.id)?.to_string()))?;
     Ok(machine)
 }
 
@@ -326,7 +345,7 @@ async fn connect(
     let machines = cloud::list(api_key, json).await?;
     let machine = machines
         .into_iter()
-        .find(|m| m.id == id)
+        .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
         .with_context(|| format!("No cloud machine {id}."))?;
     let machine = match machine.state.as_str() {
         "running" => machine,
@@ -346,7 +365,10 @@ async fn connect(
     // backend for this machine only, and checks the machine's host key against the one it
     // reported at boot. A machine launched elsewhere (for example from the dashboard without a
     // key) gets a key made here first.
-    let dir = keys_dir()?.join(id);
+    let dir = key
+        .parent()
+        .context("Missing cloud key directory.")?
+        .to_path_buf();
     let had_key = key.is_file();
     if !had_key {
         generate_key(&dir)?;

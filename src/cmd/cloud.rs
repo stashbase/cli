@@ -54,7 +54,7 @@ pub struct CloudList {}
 #[derive(Debug, Args)]
 #[command(override_usage = "agent cloud run [ID] [--no-tmux] [-- <COMMAND>...]")]
 pub struct CloudRun {
-    /// Cloud session to use; omit to pick an existing one or create a new one
+    /// Machine ID (vm_… or legacy UUID) to use; omit to pick an existing one or create a new one
     #[arg(value_name = "ID")]
     pub id: Option<String>,
 
@@ -74,7 +74,7 @@ pub struct CloudRun {
 #[derive(Debug, Args)]
 #[command(override_usage = "agent cloud ssh <ID> [--no-tmux]")]
 pub struct CloudSsh {
-    /// Cloud session to connect to
+    /// Machine ID (vm_… or legacy UUID) to connect to
     #[arg(value_name = "ID")]
     pub id: String,
 
@@ -90,7 +90,7 @@ pub struct CloudSsh {
 #[derive(Debug, Args)]
 #[command(override_usage = "agent cloud stop <ID>")]
 pub struct CloudStop {
-    /// Cloud session to stop
+    /// Machine ID (vm_… or legacy UUID) to stop
     #[arg(value_name = "ID")]
     pub id: String,
 }
@@ -98,7 +98,7 @@ pub struct CloudStop {
 #[derive(Debug, Args)]
 #[command(override_usage = "agent cloud delete <ID>")]
 pub struct CloudDelete {
-    /// Cloud session to delete
+    /// Machine ID (vm_… or legacy UUID) to delete
     #[arg(value_name = "ID")]
     pub id: String,
 }
