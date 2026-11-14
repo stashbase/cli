@@ -471,7 +471,8 @@ async fn connect(
         .status()
         .context("`ssh` was not found on this machine.")?;
     if !status.success() {
-        std::process::exit(status.code().unwrap_or(1));
+        // The shell's own exit code is passed through, reported the way every other command does.
+        crate::exit::Exit::code(status.code().unwrap_or(1)).terminate();
     }
     Ok(())
 }
