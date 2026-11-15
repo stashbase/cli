@@ -1,5 +1,4 @@
 pub mod agent;
-pub mod cloud;
 pub mod config;
 pub mod doctor;
 pub mod entry;
@@ -15,4 +14,5 @@ pub mod secrets;
 pub mod setup;
 pub mod ssh;
 pub mod telemetry;
+pub mod virtual_machines;
 pub mod webhooks;

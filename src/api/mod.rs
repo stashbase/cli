@@ -1,11 +1,11 @@
 pub mod auth;
 pub mod client;
-pub mod cloud;
 pub mod dependencies;
 pub mod environments;
 pub mod projects;
 pub mod remote_proxy;
 pub mod scans;
 pub mod secrets;
+pub mod virtual_machines;
 pub mod webhooks;
 pub mod workspace;

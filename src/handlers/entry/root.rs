@@ -747,8 +747,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     .await
                     .into_exit()
             }
-            EntityType::Vms(cloud_cmd) => {
-                crate::handlers::cloud::handle_cloud_command(cloud_cmd, api_key, raw_output, silent)
+            EntityType::Vms(virtual_machine_cmd) => {
+                crate::handlers::virtual_machines::handle_virtual_machine_command(virtual_machine_cmd, api_key, raw_output, silent)
                     .await
                     .into_exit()
             }

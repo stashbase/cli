@@ -67,7 +67,10 @@ async fn send<T: serde::de::DeserializeOwned>(
     };
     let status = response.status();
     if status.is_success() {
-        let body: Data<T> = response.json().await.context("invalid cloud response")?;
+        let body: Data<T> = response
+            .json()
+            .await
+            .context("invalid virtual machine response")?;
         return Ok(body.data);
     }
     let text = response.text().await.unwrap_or_default();
@@ -85,7 +88,7 @@ async fn send<T: serde::de::DeserializeOwned>(
 }
 
 fn url(path: &str) -> String {
-    format!("{}/v1/cloud/machines{}", client::get_api_url(), path)
+    format!("{}/v1/virtual-machines{}", client::get_api_url(), path)
 }
 
 pub async fn setup_status(api_key: &str, json: bool) -> Result<SetupStatus> {
