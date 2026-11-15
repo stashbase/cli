@@ -1,4 +1,4 @@
-//! `stashbase vms setup|profile|create|list|connect|stop|delete`: managed
+//! `stashbase vms setup|create|list|connect|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -29,9 +29,6 @@ pub async fn handle_virtual_machine_command(
 ) -> Result<()> {
     match cmd.subcommand {
         VirtualMachineSubcommand::Setup(args) => setup(&api_key, args.rebuild, json, silent).await,
-        VirtualMachineSubcommand::Profile(args) => {
-            profile(&api_key, &args.file, json, silent).await
-        }
         VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
         VirtualMachineSubcommand::List(_) => list(&api_key, json).await,
         VirtualMachineSubcommand::Connect(args) => {
@@ -205,16 +202,6 @@ async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result
         ),
         _ => bail!("Setup is still running; run `stashbase vms setup` to keep waiting."),
     }
-}
-
-async fn profile(api_key: &str, file: &Path, json: bool, silent: bool) -> Result<()> {
-    let toml =
-        fs::read_to_string(file).with_context(|| format!("Could not read {}.", file.display()))?;
-    virtual_machines::set_profile(api_key, &toml, json).await?;
-    if !silent && !json {
-        println!("Workspace machine profile updated.");
-    }
-    Ok(())
 }
 
 /// Creates a machine and keeps its key locally. The request takes a while,
