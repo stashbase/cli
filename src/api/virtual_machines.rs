@@ -18,21 +18,6 @@ pub struct Machine {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SetupError {
-    pub code: Option<String>,
-    pub message: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SetupStatus {
-    pub required: bool,
-    /// unconfigured, preparing, ready or error.
-    pub state: String,
-    #[serde(default)]
-    pub error: Option<SetupError>,
-}
-
 #[derive(Deserialize)]
 struct Data<T> {
     data: T,
@@ -89,19 +74,6 @@ async fn send<T: serde::de::DeserializeOwned>(
 
 fn url(path: &str) -> String {
     format!("{}/v1/virtual-machines{}", client::get_api_url(), path)
-}
-
-pub async fn setup_status(api_key: &str, json: bool) -> Result<SetupStatus> {
-    send(http_client()?.get(url("/setup")).bearer_auth(api_key), json).await
-}
-
-pub async fn setup_start(api_key: &str, rebuild: bool, json: bool) -> Result<SetupStatus> {
-    let path = if rebuild {
-        "/setup?rebuild=true"
-    } else {
-        "/setup"
-    };
-    send(http_client()?.post(url(path)).bearer_auth(api_key), json).await
 }
 
 pub async fn create(api_key: &str, ssh_public_key: &str, json: bool) -> Result<Machine> {

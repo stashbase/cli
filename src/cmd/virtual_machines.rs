@@ -19,16 +19,6 @@ pub enum VirtualMachineSubcommand {
     Stop(VirtualMachineStop),
     /// Delete a virtual machine and its disk for good
     Delete(VirtualMachineDelete),
-    /// Prepare the shared machine image (workspace owner; once per deployment)
-    Setup(VirtualMachineSetup),
-}
-
-#[derive(Debug, Args)]
-#[command(override_usage = "vms setup [--rebuild]")]
-pub struct VirtualMachineSetup {
-    /// Build a new image even though one is ready (for example after the API address changed)
-    #[arg(long)]
-    pub rebuild: bool,
 }
 
 #[derive(Debug, Args)]
