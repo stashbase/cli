@@ -104,18 +104,6 @@ pub async fn setup_start(api_key: &str, rebuild: bool, json: bool) -> Result<Set
     send(http_client()?.post(url(path)).bearer_auth(api_key), json).await
 }
 
-pub async fn set_profile(api_key: &str, toml: &str, json: bool) -> Result<serde_json::Value> {
-    let body = serde_json::json!({ "toml": toml });
-    send(
-        http_client()?
-            .put(url("/profile"))
-            .bearer_auth(api_key)
-            .json(&body),
-        json,
-    )
-    .await
-}
-
 pub async fn create(api_key: &str, ssh_public_key: &str, json: bool) -> Result<Machine> {
     let body = serde_json::json!({ "sshPublicKey": ssh_public_key });
     send(

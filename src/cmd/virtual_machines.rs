@@ -21,8 +21,6 @@ pub enum VirtualMachineSubcommand {
     Delete(VirtualMachineDelete),
     /// Prepare the shared machine image (workspace owner; once per deployment)
     Setup(VirtualMachineSetup),
-    /// Set the workspace machine profile from a TOML file (workspace owner)
-    Profile(VirtualMachineProfile),
 }
 
 #[derive(Debug, Args)]
@@ -31,14 +29,6 @@ pub struct VirtualMachineSetup {
     /// Build a new image even though one is ready (for example after the API address changed)
     #[arg(long)]
     pub rebuild: bool,
-}
-
-#[derive(Debug, Args)]
-#[command(override_usage = "vms profile <FILE>")]
-pub struct VirtualMachineProfile {
-    /// TOML profile with egress_hosts, deny_hosts and secret bindings
-    #[arg(value_name = "FILE")]
-    pub file: std::path::PathBuf,
 }
 
 #[derive(Debug, Args)]
