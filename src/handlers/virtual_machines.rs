@@ -1,4 +1,4 @@
-//! `stashbase vms setup|create|list|connect|stop|delete`: managed
+//! `stashbase vms create|list|connect|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -28,7 +28,6 @@ pub async fn handle_virtual_machine_command(
     silent: bool,
 ) -> Result<()> {
     match cmd.subcommand {
-        VirtualMachineSubcommand::Setup(args) => setup(&api_key, args.rebuild, json, silent).await,
         VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
         VirtualMachineSubcommand::List(_) => list(&api_key, json).await,
         VirtualMachineSubcommand::Connect(args) => {
@@ -157,50 +156,6 @@ fn read_public_key(dir: &Path) -> Result<String> {
     match (parts.next(), parts.next()) {
         (Some(kind), Some(data)) => Ok(format!("{kind} {data}")),
         _ => bail!("Could not read this computer's key for the machine."),
-    }
-}
-
-/// Starts the one-time image preparation (or joins one in progress) and waits.
-async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result<()> {
-    let mut status = virtual_machines::setup_start(api_key, rebuild, json).await?;
-    if !status.required {
-        if !silent && !json {
-            println!("No setup is needed for this deployment.");
-        }
-        return Ok(());
-    }
-    let mut spinner = (!silent && !json).then(|| {
-        new_spinner(
-            "Preparing the machine image (5-15 minutes)...",
-            Streams::Stderr,
-        )
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60 * 50);
-    while status.state == "preparing" && std::time::Instant::now() < deadline {
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        status = virtual_machines::setup_status(api_key, json).await?;
-    }
-    if let Some(mut spinner) = spinner.take() {
-        spinner.clear();
-    }
-    if json {
-        println!("{}", serde_json::to_string_pretty(&status)?);
-    }
-    match status.state.as_str() {
-        "ready" => {
-            if !silent && !json {
-                println!("The machine image is ready. Create a machine with: stashbase vms create");
-            }
-            Ok(())
-        }
-        "error" => bail!(
-            "Setup failed: {}. Run `stashbase vms setup` to retry.",
-            status
-                .error
-                .and_then(|e| e.message.or(e.code))
-                .unwrap_or_else(|| "unknown error".into())
-        ),
-        _ => bail!("Setup is still running; run `stashbase vms setup` to keep waiting."),
     }
 }
 
