@@ -103,7 +103,7 @@ pub enum EntityType {
 
     /// Manage and connect to virtual machines
     #[clap(name = "vms", aliases = &["vm"])]
-    Vms(crate::cmd::cloud::CloudCommand),
+    Vms(crate::cmd::virtual_machines::VirtualMachineCommand),
 
     /// Open web dashboard
     #[clap(name = "open", aliases = &["dashboard"])]

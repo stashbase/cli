@@ -12,8 +12,8 @@ use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
 
 use crate::{
-    api::cloud::{self, Machine},
-    cmd::cloud::{CloudCommand, CloudSubcommand},
+    api::virtual_machines::{self, Machine},
+    cmd::virtual_machines::{VirtualMachineCommand, VirtualMachineSubcommand},
     handlers::run::entry::shell_quote,
     utils::{
         interaction::select,
@@ -21,22 +21,24 @@ use crate::{
     },
 };
 
-pub async fn handle_cloud_command(
-    cmd: CloudCommand,
+pub async fn handle_virtual_machine_command(
+    cmd: VirtualMachineCommand,
     api_key: String,
     json: bool,
     silent: bool,
 ) -> Result<()> {
     match cmd.subcommand {
-        CloudSubcommand::Setup(args) => setup(&api_key, args.rebuild, json, silent).await,
-        CloudSubcommand::Profile(args) => profile(&api_key, &args.file, json, silent).await,
-        CloudSubcommand::Create(_) => create(&api_key, json, silent).await,
-        CloudSubcommand::List(_) => list(&api_key, json).await,
-        CloudSubcommand::Connect(args) => {
+        VirtualMachineSubcommand::Setup(args) => setup(&api_key, args.rebuild, json, silent).await,
+        VirtualMachineSubcommand::Profile(args) => {
+            profile(&api_key, &args.file, json, silent).await
+        }
+        VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
+        VirtualMachineSubcommand::List(_) => list(&api_key, json).await,
+        VirtualMachineSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
         }
-        CloudSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
-        CloudSubcommand::Delete(args) => delete(&api_key, &args.id, json, silent).await,
+        VirtualMachineSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
+        VirtualMachineSubcommand::Delete(args) => delete(&api_key, &args.id, json, silent).await,
     }
 }
 
@@ -52,6 +54,7 @@ fn ssh_option_path(path: &Path) -> Result<String> {
 
 fn keys_dir() -> Result<PathBuf> {
     let dirs = ProjectDirs::from("", "", "stashbase").context("Could not find data directory.")?;
+    // Keep the existing directory so saved SSH keys and known-hosts files remain usable.
     Ok(dirs.data_local_dir().join("cloud"))
 }
 
@@ -98,7 +101,7 @@ fn generate_key(dir: &Path) -> Result<String> {
             "-N",
             "",
             "-C",
-            "stashbase-cloud",
+            "stashbase-virtual-machine",
             "-f",
         ])
         .arg(&key)
@@ -124,11 +127,11 @@ async fn certificate_when_ready(
     public_key: &str,
     json: bool,
     silent: bool,
-) -> Result<cloud::Certificate> {
+) -> Result<virtual_machines::Certificate> {
     let mut spinner = None;
     let mut attempt = 0;
     loop {
-        match cloud::certificate(api_key, id, public_key, json).await {
+        match virtual_machines::certificate(api_key, id, public_key, json).await {
             Err(error) if attempt < 24 && format!("{error:#}").contains("host_key_unavailable") => {
                 if spinner.is_none() && !silent && !json {
                     spinner = Some(new_spinner(
@@ -162,7 +165,7 @@ fn read_public_key(dir: &Path) -> Result<String> {
 
 /// Starts the one-time image preparation (or joins one in progress) and waits.
 async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result<()> {
-    let mut status = cloud::setup_start(api_key, rebuild, json).await?;
+    let mut status = virtual_machines::setup_start(api_key, rebuild, json).await?;
     if !status.required {
         if !silent && !json {
             println!("No setup is needed for this deployment.");
@@ -178,7 +181,7 @@ async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60 * 50);
     while status.state == "preparing" && std::time::Instant::now() < deadline {
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        status = cloud::setup_status(api_key, json).await?;
+        status = virtual_machines::setup_status(api_key, json).await?;
     }
     if let Some(mut spinner) = spinner.take() {
         spinner.clear();
@@ -207,7 +210,7 @@ async fn setup(api_key: &str, rebuild: bool, json: bool, silent: bool) -> Result
 async fn profile(api_key: &str, file: &Path, json: bool, silent: bool) -> Result<()> {
     let toml =
         fs::read_to_string(file).with_context(|| format!("Could not read {}.", file.display()))?;
-    cloud::set_profile(api_key, &toml, json).await?;
+    virtual_machines::set_profile(api_key, &toml, json).await?;
     if !silent && !json {
         println!("Workspace machine profile updated.");
     }
@@ -222,17 +225,17 @@ async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machi
     let public_key = generate_key(&pending)?;
     let mut spinner =
         (!silent && !json).then(|| new_spinner("Creating the virtual machine...", Streams::Stderr));
-    let known: Vec<String> = cloud::list(api_key, json)
+    let known: Vec<String> = virtual_machines::list(api_key, json)
         .await
         .map(|machines| machines.into_iter().map(|m| m.id).collect())
         .unwrap_or_default();
-    let mut result = cloud::create(api_key, &public_key, json).await;
+    let mut result = virtual_machines::create(api_key, &public_key, json).await;
     if result.is_err() {
         // The server may drop the request while the VM is still being created:
         // look for the new machine instead of failing.
         for _ in 0..36 {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            let Ok(machines) = cloud::list(api_key, json).await else {
+            let Ok(machines) = virtual_machines::list(api_key, json).await else {
                 continue;
             };
             if let Some(found) = machines.into_iter().find(|m| !known.contains(&m.id)) {
@@ -271,7 +274,7 @@ async fn create(api_key: &str, json: bool, silent: bool) -> Result<()> {
 }
 
 async fn list(api_key: &str, json: bool) -> Result<()> {
-    let machines = cloud::list(api_key, json).await?;
+    let machines = virtual_machines::list(api_key, json).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&machines)?);
     } else if machines.is_empty() {
@@ -298,7 +301,7 @@ async fn pick_or_create(api_key: &str, json: bool, silent: bool) -> Result<Strin
              List machines with `stashbase vms list`."
         );
     }
-    let machines = cloud::list(api_key, json).await?;
+    let machines = virtual_machines::list(api_key, json).await?;
     // A machine without a key from this CLI gets one added when you connect.
     let usable: Vec<Machine> = machines
         .into_iter()
@@ -349,7 +352,7 @@ async fn connect(
 ) -> Result<()> {
     validate_id(id)?;
     let key = key_path(id)?;
-    let machines = cloud::list(api_key, json).await?;
+    let machines = virtual_machines::list(api_key, json).await?;
     let machine = machines
         .into_iter()
         .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
@@ -359,13 +362,13 @@ async fn connect(
         "stopped" | "error" => {
             let mut spinner =
                 (!silent && !json).then(|| new_spinner("Starting the machine...", Streams::Stderr));
-            let resumed = cloud::resume(api_key, id, json).await;
+            let resumed = virtual_machines::resume(api_key, id, json).await;
             if let Some(mut spinner) = spinner.take() {
                 spinner.clear();
             }
             resumed?
         }
-        other => bail!("Cloud machine {id} is {other}; try again shortly."),
+        other => bail!("Virtual machine {id} is {other}; try again shortly."),
     };
     let ip = machine.ip.context("The machine has no address yet.")?;
     // Every connection uses a short-lived certificate for this computer's key, issued by the
@@ -374,7 +377,7 @@ async fn connect(
     // key) gets a key made here first.
     let dir = key
         .parent()
-        .context("Missing cloud key directory.")?
+        .context("Missing machine key directory.")?
         .to_path_buf();
     let had_key = key.is_file();
     if !had_key {
@@ -433,7 +436,10 @@ async fn connect(
             .args(["-o", "GlobalKnownHostsFile=/dev/null"])
             .args(["-o", "UpdateHostKeys=no"])
             .arg("-o")
-            .arg(format!("UserKnownHostsFile={}", ssh_option_path(&known_hosts)?));
+            .arg(format!(
+                "UserKnownHostsFile={}",
+                ssh_option_path(&known_hosts)?
+            ));
     } else {
         ssh.args(["-o", "StrictHostKeyChecking=no"])
             .args(["-o", "UserKnownHostsFile=/dev/null"]);
@@ -476,7 +482,7 @@ async fn connect(
 
 async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     validate_id(id)?;
-    cloud::stop(api_key, id, json).await?;
+    virtual_machines::stop(api_key, id, json).await?;
     // The key stays: `run` or `ssh` starts the machine again.
     if !silent && !json {
         println!("Stopped virtual machine {id}");
@@ -487,7 +493,7 @@ async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
 
 async fn delete(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     validate_id(id)?;
-    cloud::destroy(api_key, id, json).await?;
+    virtual_machines::destroy(api_key, id, json).await?;
     let _ = fs::remove_dir_all(keys_dir()?.join(id));
     if !silent && !json {
         println!("Deleted virtual machine {id}");

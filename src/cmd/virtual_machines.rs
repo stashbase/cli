@@ -2,32 +2,32 @@ use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms <COMMAND> [OPTIONS]")]
-pub struct CloudCommand {
+pub struct VirtualMachineCommand {
     #[clap(subcommand)]
-    pub subcommand: CloudSubcommand,
+    pub subcommand: VirtualMachineSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum CloudSubcommand {
+pub enum VirtualMachineSubcommand {
     /// Create a virtual machine
-    Create(CloudCreate),
+    Create(VirtualMachineCreate),
     /// List your virtual machines
-    List(CloudList),
+    List(VirtualMachineList),
     /// Connect to a virtual machine: pick an existing one or create a new one
-    Connect(CloudConnect),
+    Connect(VirtualMachineConnect),
     /// Stop a virtual machine, keeping its disk; `connect` starts it again
-    Stop(CloudStop),
+    Stop(VirtualMachineStop),
     /// Delete a virtual machine and its disk for good
-    Delete(CloudDelete),
+    Delete(VirtualMachineDelete),
     /// Prepare the shared machine image (workspace owner; once per deployment)
-    Setup(CloudSetup),
+    Setup(VirtualMachineSetup),
     /// Set the workspace machine profile from a TOML file (workspace owner)
-    Profile(CloudProfile),
+    Profile(VirtualMachineProfile),
 }
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms setup [--rebuild]")]
-pub struct CloudSetup {
+pub struct VirtualMachineSetup {
     /// Build a new image even though one is ready (for example after the API address changed)
     #[arg(long)]
     pub rebuild: bool,
@@ -35,7 +35,7 @@ pub struct CloudSetup {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms profile <FILE>")]
-pub struct CloudProfile {
+pub struct VirtualMachineProfile {
     /// TOML profile with egress_hosts, deny_hosts and secret bindings
     #[arg(value_name = "FILE")]
     pub file: std::path::PathBuf,
@@ -43,15 +43,15 @@ pub struct CloudProfile {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms create")]
-pub struct CloudCreate {}
+pub struct VirtualMachineCreate {}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms list")]
-pub struct CloudList {}
+pub struct VirtualMachineList {}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms connect [ID] [--no-tmux] [-- <COMMAND>...]")]
-pub struct CloudConnect {
+pub struct VirtualMachineConnect {
     /// Machine ID (vm_… or legacy UUID) to use; omit to pick an existing one or create a new one
     #[arg(value_name = "ID")]
     pub id: Option<String>,
@@ -71,7 +71,7 @@ pub struct CloudConnect {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms stop <ID>")]
-pub struct CloudStop {
+pub struct VirtualMachineStop {
     /// Machine ID (vm_… or legacy UUID) to stop
     #[arg(value_name = "ID")]
     pub id: String,
@@ -79,7 +79,7 @@ pub struct CloudStop {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms delete <ID>")]
-pub struct CloudDelete {
+pub struct VirtualMachineDelete {
     /// Machine ID (vm_… or legacy UUID) to delete
     #[arg(value_name = "ID")]
     pub id: String,
