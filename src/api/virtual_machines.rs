@@ -7,7 +7,6 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Machine {
     pub id: String,
     /// creating, running, stopping, stopped, resuming, error or deleted.
@@ -80,7 +79,7 @@ fn url(path: &str) -> String {
 }
 
 pub async fn create(api_key: &str, ssh_public_key: &str, json: bool) -> Result<Machine> {
-    let body = serde_json::json!({ "sshPublicKey": ssh_public_key });
+    let body = serde_json::json!({ "ssh_public_key": ssh_public_key });
     send(
         http_client()?
             .post(url(""))
@@ -126,7 +125,6 @@ pub async fn destroy(api_key: &str, id: &str, json: bool) -> Result<Machine> {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Certificate {
     /// A short-lived SSH certificate for the public key, valid for this machine only.
     pub certificate: String,
@@ -142,7 +140,7 @@ pub async fn certificate(
     ssh_public_key: &str,
     json: bool,
 ) -> Result<Certificate> {
-    let body = serde_json::json!({ "sshPublicKey": ssh_public_key });
+    let body = serde_json::json!({ "ssh_public_key": ssh_public_key });
     send(
         http_client()?
             .post(url(&format!("/{id}/certificate")))
