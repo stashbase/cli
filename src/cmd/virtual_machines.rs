@@ -15,7 +15,10 @@ pub enum VirtualMachineSubcommand {
     List(VirtualMachineList),
     /// Connect to a virtual machine: pick an existing one or create a new one
     Connect(VirtualMachineConnect),
-    /// Stop a virtual machine, keeping its disk; `connect` starts it again
+    /// Start a stopped virtual machine without connecting to it
+    #[command(visible_alias = "resume")]
+    Start(VirtualMachineStart),
+    /// Stop a virtual machine, keeping its disk; `start` or `connect` starts it again
     Stop(VirtualMachineStop),
     /// Delete a virtual machine and its disk for good
     Delete(VirtualMachineDelete),
@@ -47,6 +50,14 @@ pub struct VirtualMachineConnect {
     /// Command to run on the machine instead of an interactive shell
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "vms start <ID>")]
+pub struct VirtualMachineStart {
+    /// Machine ID (vm_… or legacy UUID) to start
+    #[arg(value_name = "ID")]
+    pub id: String,
 }
 
 #[derive(Debug, Args)]
