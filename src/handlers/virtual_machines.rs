@@ -18,7 +18,8 @@ use crate::{
     handlers::run::entry::shell_quote,
     utils::{
         interaction::select,
-        spinner::{new_spinner, Streams},
+        output::get_formatted_json_string,
+        spinner::{new_spinner, request_spinner, Streams},
         tables::build::build_table,
     },
 };
@@ -31,7 +32,7 @@ pub async fn handle_virtual_machine_command(
 ) -> Result<()> {
     match cmd.subcommand {
         VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
-        VirtualMachineSubcommand::List(_) => list(&api_key, json).await,
+        VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
         }
@@ -209,7 +210,7 @@ async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machi
 async fn create(api_key: &str, json: bool, silent: bool) -> Result<()> {
     let machine = create_machine(api_key, json, silent).await?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&machine)?);
+        println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
         println!("Created virtual machine {}", machine.id);
         println!("Connect with: stashbase vms connect {}", machine.id);
@@ -228,10 +229,13 @@ struct MachineRow {
     ssh: String,
 }
 
-async fn list(api_key: &str, json: bool) -> Result<()> {
-    let machines = virtual_machines::list(api_key, json).await?;
+async fn list(api_key: &str, json: bool, silent: bool) -> Result<()> {
+    let spinner = (!silent && !json).then(request_spinner);
+    let machines = virtual_machines::list(api_key, json).await;
+    drop(spinner);
+    let machines = machines?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&machines)?);
+        println!("{}", get_formatted_json_string(&machines, true)?);
     } else if machines.is_empty() {
         println!("No virtual machines.");
     } else {
