@@ -14,6 +14,9 @@ pub struct Machine {
     pub state: String,
     #[serde(default)]
     pub ip: Option<String>,
+    /// `ssh agent@<host>` for a running machine; uses its stable name when the server has one.
+    #[serde(default)]
+    pub ssh_command: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
 }

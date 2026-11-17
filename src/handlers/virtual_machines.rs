@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
+use tabled::Tabled;
 
 use crate::{
     api::virtual_machines::{self, Machine},
@@ -18,6 +19,7 @@ use crate::{
     utils::{
         interaction::select,
         spinner::{new_spinner, Streams},
+        tables::build::build_table,
     },
 };
 
@@ -215,6 +217,17 @@ async fn create(api_key: &str, json: bool, silent: bool) -> Result<()> {
     Ok(())
 }
 
+/// A machine as `vms list` shows it.
+#[derive(Tabled)]
+struct MachineRow {
+    #[tabled(rename = "ID")]
+    id: String,
+    #[tabled(rename = "State")]
+    state: String,
+    #[tabled(rename = "SSH")]
+    ssh: String,
+}
+
 async fn list(api_key: &str, json: bool) -> Result<()> {
     let machines = virtual_machines::list(api_key, json).await?;
     if json {
@@ -222,14 +235,21 @@ async fn list(api_key: &str, json: bool) -> Result<()> {
     } else if machines.is_empty() {
         println!("No virtual machines.");
     } else {
-        for m in machines.iter().filter(|m| m.state != "deleted") {
-            println!(
-                "{}  {:<10}  {}",
-                m.id,
-                m.state,
-                m.ip.as_deref().unwrap_or("-")
-            );
-        }
+        let rows: Vec<MachineRow> = machines
+            .iter()
+            .filter(|m| m.state != "deleted")
+            .map(|m| MachineRow {
+                id: m.id.clone(),
+                state: m.state.clone(),
+                // Plain SSH needs your key on the machine; `stashbase vms connect <id>` does not.
+                ssh: m
+                    .ssh_command
+                    .clone()
+                    .or_else(|| m.ip.clone())
+                    .unwrap_or_else(|| "---".to_owned()),
+            })
+            .collect();
+        println!("{}", build_table(&rows));
     }
     Ok(())
 }
