@@ -1,4 +1,4 @@
-//! `stashbase vms create|list|connect|stop|delete`: managed
+//! `stashbase vms create|list|connect|start|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -36,6 +36,7 @@ pub async fn handle_virtual_machine_command(
         VirtualMachineSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
         }
+        VirtualMachineSubcommand::Start(args) => start(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Delete(args) => delete(&api_key, &args.id, json, silent).await,
     }
@@ -446,13 +447,29 @@ async fn connect(
     Ok(())
 }
 
+async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
+    validate_id(id)?;
+    let mut spinner =
+        (!silent && !json).then(|| new_spinner("Starting the machine...", Streams::Stderr));
+    let started = virtual_machines::resume(api_key, id, json).await;
+    if let Some(mut spinner) = spinner.take() {
+        spinner.clear();
+    }
+    started?;
+    if !silent && !json {
+        println!("Started virtual machine {id}");
+        println!("Connect with: stashbase vms connect {id}");
+    }
+    Ok(())
+}
+
 async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     validate_id(id)?;
     virtual_machines::stop(api_key, id, json).await?;
     // The key stays: `run` or `ssh` starts the machine again.
     if !silent && !json {
         println!("Stopped virtual machine {id}");
-        println!("Start it again with: stashbase vms connect {id}");
+        println!("Start it again with: stashbase vms start {id}");
     }
     Ok(())
 }
