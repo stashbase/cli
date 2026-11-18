@@ -66,6 +66,11 @@ async fn send<T: serde::de::DeserializeOwned>(
         bail!(error.format_error_output(json_format)?)
     }
     if let Ok(PlainError { code, message }) = serde_json::from_str::<PlainError>(&text) {
+        if code.as_deref() == Some("virtual_machines.two_factor_required") {
+            bail!(
+                "Creating a machine requires two-factor authentication. Turn it on in the dashboard: Account settings → Authentication."
+            )
+        }
         bail!(
             "{} ({status})",
             code.or(message).unwrap_or_else(|| "request failed".into())
