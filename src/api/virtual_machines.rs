@@ -169,8 +169,16 @@ fn url(path: &str) -> String {
     format!("{}/v1/virtual-machines{}", client::get_api_url(), path)
 }
 
-pub async fn create(api_key: &str, ssh_public_key: &str, json: bool) -> Result<Machine> {
-    let body = serde_json::json!({ "ssh_public_key": ssh_public_key });
+pub async fn create(
+    api_key: &str,
+    ssh_public_key: &str,
+    location: Option<&str>,
+    json: bool,
+) -> Result<Machine> {
+    let mut body = serde_json::json!({ "ssh_public_key": ssh_public_key });
+    if let Some(location) = location {
+        body["location"] = location.into();
+    }
     send(
         http_client()?
             .post(url(""))

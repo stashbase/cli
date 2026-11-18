@@ -31,7 +31,9 @@ pub async fn handle_virtual_machine_command(
     silent: bool,
 ) -> Result<()> {
     match cmd.subcommand {
-        VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
+        VirtualMachineSubcommand::Create(args) => {
+            create(&api_key, args.location.as_deref(), json, silent).await
+        }
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Metrics(args) => metrics(&api_key, &args.id, json, silent).await,
@@ -40,7 +42,16 @@ pub async fn handle_virtual_machine_command(
         }
         VirtualMachineSubcommand::Usage(_) => usage(&api_key, json, silent).await,
         VirtualMachineSubcommand::Connect(args) => {
-            run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
+            run(
+                &api_key,
+                args.id,
+                args.command,
+                !args.no_tmux,
+                args.location.as_deref(),
+                json,
+                silent,
+            )
+            .await
         }
         VirtualMachineSubcommand::Start(args) => start(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
@@ -171,7 +182,12 @@ fn read_public_key(dir: &Path) -> Result<String> {
 
 /// Creates a machine and keeps its key locally. The request takes a while,
 /// so a spinner shows progress unless output is suppressed.
-async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machine> {
+async fn create_machine(
+    api_key: &str,
+    location: Option<&str>,
+    json: bool,
+    silent: bool,
+) -> Result<Machine> {
     let keys = keys_dir()?;
     let pending = keys.join(format!("pending-{}", uuid::Uuid::new_v4()));
     let public_key = generate_key(&pending)?;
@@ -181,7 +197,7 @@ async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machi
         .await
         .map(|machines| machines.into_iter().map(|m| m.id).collect())
         .unwrap_or_default();
-    let mut result = virtual_machines::create(api_key, &public_key, json).await;
+    let mut result = virtual_machines::create(api_key, &public_key, location, json).await;
     if result.is_err() {
         // The server may drop the request while the VM is still being created:
         // look for the new machine instead of failing.
@@ -214,8 +230,8 @@ async fn create_machine(api_key: &str, json: bool, silent: bool) -> Result<Machi
     Ok(machine)
 }
 
-async fn create(api_key: &str, json: bool, silent: bool) -> Result<()> {
-    let machine = create_machine(api_key, json, silent).await?;
+async fn create(api_key: &str, location: Option<&str>, json: bool, silent: bool) -> Result<()> {
+    let machine = create_machine(api_key, location, json, silent).await?;
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
@@ -509,7 +525,12 @@ async fn usage(api_key: &str, json: bool, silent: bool) -> Result<()> {
 
 /// Asks which machine to run on: one of the user's existing machines (with a
 /// key on this computer), or a new one.
-async fn pick_or_create(api_key: &str, json: bool, silent: bool) -> Result<String> {
+async fn pick_or_create(
+    api_key: &str,
+    location: Option<&str>,
+    json: bool,
+    silent: bool,
+) -> Result<String> {
     if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         bail!(
             "Pass a machine ID, or run in a terminal to pick a machine. \
@@ -526,7 +547,7 @@ async fn pick_or_create(api_key: &str, json: bool, silent: bool) -> Result<Strin
         if !silent {
             eprintln!("No existing virtual machines; creating a new one.");
         }
-        return Ok(create_machine(api_key, json, silent).await?.id);
+        return Ok(create_machine(api_key, location, json, silent).await?.id);
     }
     let mut labels: Vec<String> = usable
         .iter()
@@ -535,7 +556,7 @@ async fn pick_or_create(api_key: &str, json: bool, silent: bool) -> Result<Strin
     labels.push("Create a new machine".to_string());
     match select("Run on which virtual machine?", labels) {
         Some(index) if index < usable.len() => Ok(usable[index].id.clone()),
-        Some(_) => Ok(create_machine(api_key, json, silent).await?.id),
+        Some(_) => Ok(create_machine(api_key, location, json, silent).await?.id),
         None => bail!("Cancelled."),
     }
 }
@@ -545,12 +566,13 @@ async fn run(
     id: Option<String>,
     command: Vec<String>,
     use_tmux: bool,
+    location: Option<&str>,
     json: bool,
     silent: bool,
 ) -> Result<()> {
     let id = match id {
         Some(id) => id,
-        None => pick_or_create(api_key, json, silent).await?,
+        None => pick_or_create(api_key, location, json, silent).await?,
     };
     connect(api_key, &id, &command, use_tmux, json, silent).await
 }

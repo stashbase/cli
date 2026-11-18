@@ -33,8 +33,12 @@ pub enum VirtualMachineSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "vms create")]
-pub struct VirtualMachineCreate {}
+#[command(override_usage = "vms create [--location us|eu|asia]")]
+pub struct VirtualMachineCreate {
+    /// Region to create the machine in; pick the one closest to you for a responsive terminal
+    #[arg(long, value_parser = ["us", "eu", "asia"])]
+    pub location: Option<String>,
+}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms list")]
@@ -72,11 +76,17 @@ pub struct VirtualMachineAutostop {
 pub struct VirtualMachineUsage {}
 
 #[derive(Debug, Args)]
-#[command(override_usage = "vms connect [ID] [--no-tmux] [-- <COMMAND>...]")]
+#[command(
+    override_usage = "vms connect [ID] [--location us|eu|asia] [--no-tmux] [-- <COMMAND>...]"
+)]
 pub struct VirtualMachineConnect {
     /// Machine ID (vm_… or legacy UUID) to use; omit to pick an existing one or create a new one
     #[arg(value_name = "ID")]
     pub id: Option<String>,
+
+    /// Region for a machine created here (when no ID is given)
+    #[arg(long, value_parser = ["us", "eu", "asia"])]
+    pub location: Option<String>,
 
     /// Open a plain login shell instead of the machine's shared tmux session
     #[arg(long)]
