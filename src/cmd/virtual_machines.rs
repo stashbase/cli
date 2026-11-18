@@ -33,11 +33,11 @@ pub enum VirtualMachineSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "vms create [--location us|eu|asia]")]
+#[command(override_usage = "vms create --location <us|eu|asia>")]
 pub struct VirtualMachineCreate {
     /// Region to create the machine in; pick the one closest to you for a responsive terminal
-    #[arg(long, value_parser = ["us", "eu", "asia"])]
-    pub location: Option<String>,
+    #[arg(long, required = true, value_parser = ["us", "eu", "asia"])]
+    pub location: String,
 }
 
 #[derive(Debug, Args)]
@@ -84,7 +84,7 @@ pub struct VirtualMachineConnect {
     #[arg(value_name = "ID")]
     pub id: Option<String>,
 
-    /// Region for a machine created here (when no ID is given)
+    /// Region for a machine created here (when no ID is given); asked for when omitted
     #[arg(long, value_parser = ["us", "eu", "asia"])]
     pub location: Option<String>,
 
