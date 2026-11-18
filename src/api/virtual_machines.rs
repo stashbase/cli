@@ -66,10 +66,8 @@ async fn send<T: serde::de::DeserializeOwned>(
         bail!(error.format_error_output(json_format)?)
     }
     if let Ok(PlainError { code, message }) = serde_json::from_str::<PlainError>(&text) {
-        if code.as_deref() == Some("virtual_machines.two_factor_required") {
-            bail!(
-                "Creating a machine requires two-factor authentication. Turn it on in the dashboard: Account settings → Authentication."
-            )
+        if let Some(text) = code.as_deref().and_then(error_message) {
+            bail!("{text}")
         }
         bail!(
             "{} ({status})",
@@ -77,6 +75,31 @@ async fn send<T: serde::de::DeserializeOwned>(
         )
     }
     bail!("Request failed with status {status}.")
+}
+
+/// Readable messages for the errors users run into, as in the dashboard. Unknown codes are
+/// printed as they are.
+fn error_message(code: &str) -> Option<&'static str> {
+    Some(match code.strip_prefix("virtual_machines.")? {
+        "two_factor_required" => "Creating a machine requires two-factor authentication. Turn it on in the dashboard: Account settings → Authentication.",
+        "trial_not_claimed" => "Machines need the one-time free trial or a paid plan. Ask the workspace owner to claim the trial in the dashboard.",
+        "allowance_exhausted" => "This workspace has used all its included machine time. The owner can allow extra hours on a paid plan, or upgrade.",
+        "egress_exhausted" => "This workspace has used all its included data transfer for machines.",
+        "plan_configuration_unavailable" => "Machines are not available for this workspace's plan. Contact support.",
+        "member_limit" => "You have reached your machine limit. Stopped machines count; delete one with `stashbase vms delete <ID>`.",
+        "not_invited" => "Your account is not enabled for virtual machines yet.",
+        "feature_disabled" => "Virtual machines are not enabled.",
+        "access_suspended" => "Machine access is suspended for this account or workspace.",
+        "budget_limit" => "Machines are temporarily unavailable. Try again later.",
+        "setup_not_ready" => "Virtual machines are not available yet. Try again later.",
+        "operation_busy" => "Another operation is running on this machine. Try again shortly.",
+        "invalid_transition" => "The machine cannot do that in its current state. Check it with `stashbase vms list`.",
+        "provision_failed" => "The machine could not be started. Try again.",
+        "host_key_unavailable" => "The machine is still starting. Try again in a minute.",
+        "rate_limited" => "Too many requests. Wait a moment and try again.",
+        "not_found" => "No such machine in this workspace.",
+        _ => return None,
+    })
 }
 
 fn url(path: &str) -> String {
