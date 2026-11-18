@@ -550,21 +550,37 @@ async fn usage(api_key: &str, json: bool, silent: bool) -> Result<()> {
 
 /// Asks which machine to run on: one of the user's existing machines (with a
 /// key on this computer), or a new one.
-/// The region for a new machine: the one passed, or asked for (connect runs in a terminal).
-fn region(location: Option<&str>) -> Result<String> {
+/// The region for a new machine: the one passed, or asked for (connect runs in a terminal),
+/// among the locations offered, each shown with its cloud region.
+async fn region(api_key: &str, location: Option<&str>, json: bool) -> Result<String> {
     if let Some(location) = location {
         return Ok(location.to_owned());
     }
-    let regions = ["us", "eu", "asia"];
+    let usage = virtual_machines::usage(api_key, json).await?;
+    let mut offered = usage.locations;
+    if offered.is_empty() {
+        offered = vec!["us".into(), "eu".into(), "asia".into()];
+    }
+    let labels = offered
+        .iter()
+        .map(|l| {
+            let name = match l.as_str() {
+                "us" => "United States",
+                "eu" => "Europe",
+                "asia" => "Asia",
+                other => other,
+            };
+            match usage.location_regions.get(l) {
+                Some(region) => format!("{name} ({region})"),
+                None => name.to_owned(),
+            }
+        })
+        .collect();
     match select(
-        "Create the machine in which region? Pick the closest for a responsive terminal.",
-        vec![
-            "us (United States)".into(),
-            "eu (Europe)".into(),
-            "asia (Asia)".into(),
-        ],
+        "Create the machine in which location? Pick the closest for a responsive terminal.",
+        labels,
     ) {
-        Some(index) => Ok(regions[index].to_owned()),
+        Some(index) => Ok(offered[index].clone()),
         None => bail!("Cancelled."),
     }
 }
@@ -591,7 +607,7 @@ async fn pick_or_create(
         if !silent {
             eprintln!("No existing virtual machines; creating a new one.");
         }
-        let location = region(location)?;
+        let location = region(api_key, location, json).await?;
         return Ok(create_machine(api_key, &location, json, silent).await?.id);
     }
     let mut labels: Vec<String> = usable
@@ -602,7 +618,7 @@ async fn pick_or_create(
     match select("Run on which virtual machine?", labels) {
         Some(index) if index < usable.len() => Ok(usable[index].id.clone()),
         Some(_) => {
-            let location = region(location)?;
+            let location = region(api_key, location, json).await?;
             Ok(create_machine(api_key, &location, json, silent).await?.id)
         }
         None => bail!("Cancelled."),
