@@ -54,6 +54,11 @@ pub struct Usage {
     pub allowance: Option<Allowance>,
     #[serde(default)]
     pub machines: Option<MachineCount>,
+    /// The locations a machine can be created in (us, eu, asia), and the region of each.
+    #[serde(default)]
+    pub locations: Vec<String>,
+    #[serde(default)]
+    pub location_regions: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
