@@ -51,7 +51,7 @@ async fn run_command(
 ) -> Result<()> {
     match cmd.subcommand {
         VirtualMachineSubcommand::Create(args) => {
-            create(&api_key, &args.location, json, silent).await
+            create(&api_key, args.location.as_deref(), json, silent).await
         }
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
@@ -252,8 +252,14 @@ async fn create_machine(
     Ok(machine)
 }
 
-async fn create(api_key: &str, location: &str, json: bool, silent: bool) -> Result<()> {
-    let machine = create_machine(api_key, location, json, silent).await?;
+async fn create(api_key: &str, location: Option<&str>, json: bool, silent: bool) -> Result<()> {
+    if location.is_none()
+        && (json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal())
+    {
+        bail!("Pass --location us, eu or asia.");
+    }
+    let location = region(api_key, location, json).await?;
+    let machine = create_machine(api_key, &location, json, silent).await?;
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
