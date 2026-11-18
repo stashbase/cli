@@ -112,7 +112,10 @@ async fn send<T: serde::de::DeserializeOwned>(
             } else {
                 OutputError::cannot_connect()
             };
-            bail!(output_error.format_error_output(json_format)?);
+            // The network error stays underneath, so callers can tell "no answer" from a refusal.
+            return Err(
+                anyhow::Error::new(error).context(output_error.format_error_output(json_format)?)
+            );
         }
     };
     let status = response.status();
