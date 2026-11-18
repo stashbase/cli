@@ -30,11 +30,20 @@ pub enum KeyStorage {
 pub fn report_storage(storage: &KeyStorage) {
     #[cfg(unix)]
     if let KeyStorage::File(path) = storage {
-        eprintln!(
-            "{} No system keyring is available, so the API key was stored in {} (readable only by you).",
-            "Note:".yellow_if_tty_stderr(),
-            path.display()
-        );
+        // On a Stashbase virtual machine, agents run as this same user and can read the file.
+        if std::path::Path::new("/etc/stashbase-vm").exists() {
+            eprintln!(
+                "{} The API key was stored in {}. On this machine, agents run as your user and can read it: use a read-only or narrowly scoped key, or let agents use secrets through the Agent Proxy.",
+                "Note:".yellow_if_tty_stderr(),
+                path.display()
+            );
+        } else {
+            eprintln!(
+                "{} No system keyring is available, so the API key was stored in {} (readable only by you).",
+                "Note:".yellow_if_tty_stderr(),
+                path.display()
+            );
+        }
     }
     #[cfg(not(unix))]
     let _ = storage;
