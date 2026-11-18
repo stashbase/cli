@@ -172,13 +172,10 @@ fn url(path: &str) -> String {
 pub async fn create(
     api_key: &str,
     ssh_public_key: &str,
-    location: Option<&str>,
+    location: &str,
     json: bool,
 ) -> Result<Machine> {
-    let mut body = serde_json::json!({ "ssh_public_key": ssh_public_key });
-    if let Some(location) = location {
-        body["location"] = location.into();
-    }
+    let body = serde_json::json!({ "ssh_public_key": ssh_public_key, "location": location });
     send(
         http_client()?
             .post(url(""))
