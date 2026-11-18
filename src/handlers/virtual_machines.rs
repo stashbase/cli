@@ -1,4 +1,4 @@
-//! `stashbase vms create|list|connect|start|stop|delete`: managed
+//! `stashbase vms create|list|usage|connect|start|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -33,6 +33,7 @@ pub async fn handle_virtual_machine_command(
     match cmd.subcommand {
         VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
+        VirtualMachineSubcommand::Usage(_) => usage(&api_key, json, silent).await,
         VirtualMachineSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
         }
@@ -255,6 +256,76 @@ async fn list(api_key: &str, json: bool, silent: bool) -> Result<()> {
             })
             .collect();
         println!("{}", build_table(&rows));
+    }
+    Ok(())
+}
+
+fn hours(seconds: f64) -> String {
+    let h = seconds.max(0.0) / 3600.0;
+    if h < 1.0 {
+        format!("{} min", (seconds.max(0.0) / 60.0).ceil() as u64)
+    } else if (h - h.round()).abs() < 0.05 {
+        format!("{} h", h.round() as u64)
+    } else {
+        format!("{h:.1} h")
+    }
+}
+
+async fn usage(api_key: &str, json: bool, silent: bool) -> Result<()> {
+    let spinner = (!silent && !json).then(request_spinner);
+    let usage = virtual_machines::usage(api_key, json).await;
+    drop(spinner);
+    let usage = usage?;
+    if json {
+        println!("{}", get_formatted_json_string(&usage, true)?);
+        return Ok(());
+    }
+    let Some(a) = &usage.allowance else {
+        println!(
+            "{}",
+            if usage.allowance_status == "unclaimed" {
+                "No machine time yet. The workspace owner can claim the free trial in the dashboard."
+            } else {
+                "Machines are not available for this workspace's plan."
+            }
+        );
+        return Ok(());
+    };
+    let period = match (a.kind.as_str(), a.ends_at.as_deref()) {
+        ("trial", _) => "one-time trial, shared by the workspace".to_owned(),
+        (_, Some(end)) => format!(
+            "shared by the workspace, resets {}",
+            &end[..10.min(end.len())]
+        ),
+        _ => "shared by the workspace".to_owned(),
+    };
+    println!(
+        "Machine time: {} of {} used ({period})",
+        hours(a.used_seconds.min(a.included_seconds)),
+        hours(a.included_seconds)
+    );
+    if a.overage_cap_seconds > 0.0 {
+        println!(
+            "Extra hours:  {} of {} used, ${:.2} so far (billed on the next invoice)",
+            hours(a.overage_used_seconds),
+            hours(a.overage_cap_seconds),
+            a.overage_cents / 100.0
+        );
+    }
+    println!("Time left:    {}", hours(a.remaining_seconds));
+    // A fair-use limit, shown only once it gets close (as in the dashboard).
+    if a.included_egress_bytes > 0.0 && a.used_egress_bytes >= a.included_egress_bytes * 0.8 {
+        println!(
+            "Data out:     {:.1} of {:.0} GB",
+            a.used_egress_bytes / 1e9,
+            a.included_egress_bytes / 1e9
+        );
+    }
+    if let Some(m) = &usage.machines {
+        println!("Your machines: {} of {}", m.current_count, m.max_count);
+    }
+    if usage.allowance_status == "exhausted" {
+        println!("\nIncluded usage is used up; machines stop until it resets or the owner allows extra hours.");
     }
     Ok(())
 }

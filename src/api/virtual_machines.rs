@@ -20,6 +20,44 @@ pub struct Machine {
     pub error: Option<String>,
 }
 
+/// The workspace's pooled machine allowance for the current period.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Usage {
+    #[serde(default)]
+    pub allowance_status: String,
+    #[serde(default)]
+    pub allowance: Option<Allowance>,
+    #[serde(default)]
+    pub machines: Option<MachineCount>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Allowance {
+    /// `trial` (one-time) or `subscription` (resets every billing period).
+    pub kind: String,
+    #[serde(default)]
+    pub ends_at: Option<String>,
+    pub included_seconds: f64,
+    pub used_seconds: f64,
+    pub remaining_seconds: f64,
+    #[serde(default)]
+    pub overage_cap_seconds: f64,
+    #[serde(default)]
+    pub overage_used_seconds: f64,
+    #[serde(default)]
+    pub overage_cents: f64,
+    #[serde(default)]
+    pub included_egress_bytes: f64,
+    #[serde(default)]
+    pub used_egress_bytes: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MachineCount {
+    pub current_count: u32,
+    pub max_count: u32,
+}
+
 #[derive(Deserialize)]
 struct Data<T> {
     data: T,
@@ -120,6 +158,10 @@ pub async fn create(api_key: &str, ssh_public_key: &str, json: bool) -> Result<M
 
 pub async fn list(api_key: &str, json: bool) -> Result<Vec<Machine>> {
     send(http_client()?.get(url("")).bearer_auth(api_key), json).await
+}
+
+pub async fn usage(api_key: &str, json: bool) -> Result<Usage> {
+    send(http_client()?.get(url("/usage")).bearer_auth(api_key), json).await
 }
 
 pub async fn resume(api_key: &str, id: &str, json: bool) -> Result<Machine> {
