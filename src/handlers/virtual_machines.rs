@@ -1,4 +1,4 @@
-//! `stashbase vms create|list|info|usage|connect|start|stop|delete`: managed
+//! `stashbase vms create|list|info|metrics|usage|connect|start|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -34,6 +34,7 @@ pub async fn handle_virtual_machine_command(
         VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
+        VirtualMachineSubcommand::Metrics(args) => metrics(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Usage(_) => usage(&api_key, json, silent).await,
         VirtualMachineSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
@@ -287,79 +288,133 @@ fn span(minutes: i64) -> String {
     }
 }
 
-async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
+async fn find_machine(api_key: &str, id: &str, json: bool, silent: bool) -> Result<Machine> {
     validate_id(id)?;
     let spinner = (!silent && !json).then(request_spinner);
     let machines = virtual_machines::list(api_key, json).await;
     drop(spinner);
-    let machine = machines?
+    machines?
         .into_iter()
         .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
-        .with_context(|| format!("No virtual machine {id}."))?;
+        .with_context(|| format!("No virtual machine {id}."))
+}
+
+/// Label/value lines, labels padded to one width.
+fn print_fields(fields: &[(&str, String)]) {
+    let width = fields.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
+    for (label, value) in fields {
+        println!("{label:<width$}  {value}");
+    }
+}
+
+async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
+    let machine = find_machine(api_key, id, json, silent).await?;
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
         return Ok(());
     }
-    let mut head = format!("{}  {}", machine.id, machine.state);
-    let mut extra = vec![];
-    if let Some(loc) = &machine.location {
-        extra.push(loc.clone());
+    let dash = || "---".to_owned();
+    let mut fields = vec![
+        ("ID", machine.id.clone()),
+        ("Name", machine.name.clone().unwrap_or_else(dash)),
+        ("State", machine.state.clone()),
+        ("Region", machine.location.clone().unwrap_or_else(dash)),
+        ("IP", machine.ip.clone().unwrap_or_else(dash)),
+        ("SSH", machine.ssh_command.clone().unwrap_or_else(dash)),
+    ];
+    if let Some(since) = &machine.running_since {
+        let up = minutes_until(since)
+            .map(|m| format!(" (up {})", span(-m)))
+            .unwrap_or_default();
+        fields.push(("Running since", format!("{since}{up}")));
     }
-    if let Some(up) = machine.running_since.as_deref().and_then(minutes_until) {
-        extra.push(format!("up {}", span(-up)));
+    if machine.state == "running" {
+        fields.push((
+            "Idle stop",
+            match &machine.idle_stop_at {
+                Some(at) => {
+                    let left = minutes_until(at)
+                        .map(|m| format!(" (in {})", span(m)))
+                        .unwrap_or_default();
+                    format!("{at}{left}")
+                }
+                None => "busy, stays on".to_owned(),
+            },
+        ));
     }
-    if !extra.is_empty() {
-        head.push_str(&format!("  ({})", extra.join(", ")));
-    }
-    if let Some(name) = &machine.name {
-        head = format!("{name}\n{head}");
+    if let Some(e) = &machine.error {
+        fields.push(("Error", e.clone()));
     }
     if !silent {
         println!();
     }
-    println!("{head}");
+    print_fields(&fields);
+    println!(
+        "\nConnect with `stashbase vms connect {}`; resources with `stashbase vms metrics {}`.",
+        machine.id, machine.id
+    );
+    if machine.ssh_command.is_some() {
+        println!("Plain SSH needs your own key added to the machine.");
+    }
+    Ok(())
+}
+
+async fn metrics(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
+    let machine = find_machine(api_key, id, json, silent).await?;
+    if json {
+        println!("{}", get_formatted_json_string(&machine.metrics, true)?);
+        return Ok(());
+    }
+    if !silent {
+        println!();
+    }
+    let Some(m) = machine
+        .metrics
+        .as_ref()
+        .filter(|_| machine.state == "running")
+    else {
+        println!(
+            "{}",
+            if machine.state == "running" {
+                "No readings yet; the machine reports about once a minute after it starts."
+            } else {
+                "No readings while the machine is not running."
+            }
+        );
+        return Ok(());
+    };
     let gb = |b: f64| b / 1e9;
-    match (&machine.metrics, machine.state.as_str()) {
-        (Some(m), "running") => {
-            println!("CPU     {:.0}%", m.cpu_percent);
-            println!(
-                "Memory  {:.1} GB of {:.1} GB ({:.0}%)",
+    let ago = minutes_until(&m.measured_at)
+        .map(|a| {
+            if a > -1 {
+                "under a minute ago".to_owned()
+            } else {
+                format!("{} ago", span(-a))
+            }
+        })
+        .unwrap_or_else(|| m.measured_at.clone());
+    print_fields(&[
+        ("CPU", format!("{:.0}%", m.cpu_percent)),
+        (
+            "Memory",
+            format!(
+                "{:.1} GB of {:.1} GB ({:.0}%)",
                 gb(m.memory_used_bytes),
                 gb(m.memory_total_bytes),
                 m.memory_used_bytes / m.memory_total_bytes * 100.0
-            );
-            println!(
-                "Disk    {:.1} GB of {:.0} GB ({:.0}%)",
+            ),
+        ),
+        (
+            "Disk",
+            format!(
+                "{:.1} GB of {:.0} GB ({:.0}%)",
                 gb(m.storage_used_bytes),
                 gb(m.storage_total_bytes),
                 m.storage_used_bytes / m.storage_total_bytes * 100.0
-            );
-            if let Some(ago) = minutes_until(&m.measured_at) {
-                println!(
-                    "        last reading {}",
-                    if ago > -1 {
-                        "under a minute ago".to_owned()
-                    } else {
-                        format!("{} ago", span(-ago))
-                    }
-                );
-            }
-        }
-        _ => println!("No live readings while the machine is not running."),
-    }
-    if machine.state == "running" {
-        match machine.idle_stop_at.as_deref().and_then(minutes_until) {
-            Some(left) => println!("Idle    stops in {} if idle", span(left)),
-            None => println!("Idle    busy, stays on"),
-        }
-    }
-    if let Some(e) = &machine.error {
-        println!("Error   {e}");
-    }
-    println!("\nConnect:  stashbase vms connect {}", machine.id);
-    if let Some(ssh) = &machine.ssh_command {
-        println!("SSH:      {ssh}   (needs your own key added to the machine)");
-    }
+            ),
+        ),
+        ("Measured", ago),
+    ]);
     Ok(())
 }
 
