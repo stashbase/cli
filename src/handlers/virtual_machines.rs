@@ -1,4 +1,4 @@
-//! `stashbase vms create|list|usage|connect|start|stop|delete`: managed
+//! `stashbase vms create|list|info|usage|connect|start|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -33,6 +33,7 @@ pub async fn handle_virtual_machine_command(
     match cmd.subcommand {
         VirtualMachineSubcommand::Create(_) => create(&api_key, json, silent).await,
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
+        VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Usage(_) => usage(&api_key, json, silent).await,
         VirtualMachineSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
@@ -269,6 +270,94 @@ fn hours(seconds: f64) -> String {
     } else {
         format!("{h:.1} h")
     }
+}
+
+/// Minutes from now until an ISO time (negative when it has passed).
+fn minutes_until(iso: &str) -> Option<i64> {
+    let t = chrono::DateTime::parse_from_rfc3339(iso).ok()?;
+    Some((t.timestamp() - chrono::Utc::now().timestamp()) / 60)
+}
+
+fn span(minutes: i64) -> String {
+    let m = minutes.max(0);
+    if m >= 60 {
+        format!("{} h {} min", m / 60, m % 60)
+    } else {
+        format!("{m} min")
+    }
+}
+
+async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
+    validate_id(id)?;
+    let spinner = (!silent && !json).then(request_spinner);
+    let machines = virtual_machines::list(api_key, json).await;
+    drop(spinner);
+    let machine = machines?
+        .into_iter()
+        .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
+        .with_context(|| format!("No virtual machine {id}."))?;
+    if json {
+        println!("{}", get_formatted_json_string(&machine, true)?);
+        return Ok(());
+    }
+    let mut head = format!("{}  {}", machine.id, machine.state);
+    let mut extra = vec![];
+    if let Some(loc) = &machine.location {
+        extra.push(loc.clone());
+    }
+    if let Some(up) = machine.running_since.as_deref().and_then(minutes_until) {
+        extra.push(format!("up {}", span(-up)));
+    }
+    if !extra.is_empty() {
+        head.push_str(&format!("  ({})", extra.join(", ")));
+    }
+    if let Some(name) = &machine.name {
+        head = format!("{name}\n{head}");
+    }
+    println!("{head}");
+    let gb = |b: f64| b / 1e9;
+    match (&machine.metrics, machine.state.as_str()) {
+        (Some(m), "running") => {
+            println!("CPU     {:.0}%", m.cpu_percent);
+            println!(
+                "Memory  {:.1} GB of {:.1} GB ({:.0}%)",
+                gb(m.memory_used_bytes),
+                gb(m.memory_total_bytes),
+                m.memory_used_bytes / m.memory_total_bytes * 100.0
+            );
+            println!(
+                "Disk    {:.1} GB of {:.0} GB ({:.0}%)",
+                gb(m.storage_used_bytes),
+                gb(m.storage_total_bytes),
+                m.storage_used_bytes / m.storage_total_bytes * 100.0
+            );
+            if let Some(ago) = minutes_until(&m.measured_at) {
+                println!(
+                    "        last reading {}",
+                    if ago > -1 {
+                        "under a minute ago".to_owned()
+                    } else {
+                        format!("{} ago", span(-ago))
+                    }
+                );
+            }
+        }
+        _ => println!("No live readings while the machine is not running."),
+    }
+    if machine.state == "running" {
+        match machine.idle_stop_at.as_deref().and_then(minutes_until) {
+            Some(left) => println!("Idle    stops in {} if idle", span(left)),
+            None => println!("Idle    busy, stays on"),
+        }
+    }
+    if let Some(e) = &machine.error {
+        println!("Error   {e}");
+    }
+    println!("\nConnect:  stashbase vms connect {}", machine.id);
+    if let Some(ssh) = &machine.ssh_command {
+        println!("SSH:      {ssh}   (needs your own key added to the machine)");
+    }
+    Ok(())
 }
 
 async fn usage(api_key: &str, json: bool, silent: bool) -> Result<()> {
