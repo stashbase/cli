@@ -13,6 +13,8 @@ pub enum VirtualMachineSubcommand {
     Create(VirtualMachineCreate),
     /// List your virtual machines
     List(VirtualMachineList),
+    /// Show the workspace's machine time and data transfer for this period
+    Usage(VirtualMachineUsage),
     /// Connect to a virtual machine: pick an existing one or create a new one
     Connect(VirtualMachineConnect),
     /// Start a stopped virtual machine without connecting to it
@@ -31,6 +33,10 @@ pub struct VirtualMachineCreate {}
 #[derive(Debug, Args)]
 #[command(override_usage = "vms list")]
 pub struct VirtualMachineList {}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "vms usage")]
+pub struct VirtualMachineUsage {}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms connect [ID] [--no-tmux] [-- <COMMAND>...]")]
