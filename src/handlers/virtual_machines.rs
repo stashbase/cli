@@ -30,6 +30,25 @@ pub async fn handle_virtual_machine_command(
     json: bool,
     silent: bool,
 ) -> Result<()> {
+    // Errors print after an empty line, like the other commands; only the message is shown, not
+    // the network error kept underneath it.
+    run_command(cmd, api_key, json, silent)
+        .await
+        .map_err(|error| {
+            if json {
+                error
+            } else {
+                anyhow::anyhow!("\n{error}")
+            }
+        })
+}
+
+async fn run_command(
+    cmd: VirtualMachineCommand,
+    api_key: String,
+    json: bool,
+    silent: bool,
+) -> Result<()> {
     match cmd.subcommand {
         VirtualMachineSubcommand::Create(args) => {
             create(&api_key, &args.location, json, silent).await
