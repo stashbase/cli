@@ -314,6 +314,9 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     if let Some(name) = &machine.name {
         head = format!("{name}\n{head}");
     }
+    if !silent {
+        println!();
+    }
     println!("{head}");
     let gb = |b: f64| b / 1e9;
     match (&machine.metrics, machine.state.as_str()) {
