@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::client,
-    models::api_client::{ApiErrorResponse, OutputError},
+    models::api_client::{ApiError, ApiErrorResponse, OutputError},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -132,13 +132,16 @@ async fn send<T: serde::de::DeserializeOwned>(
         bail!(error.format_error_output(json_format)?)
     }
     if let Ok(PlainError { code, message }) = serde_json::from_str::<PlainError>(&text) {
-        if let Some(text) = code.as_deref().and_then(error_message) {
-            bail!("{text}")
-        }
-        bail!(
-            "{} ({status})",
-            code.or(message).unwrap_or_else(|| "request failed".into())
-        )
+        // Formatted like every other API error, with a readable message for known codes.
+        let code = code.unwrap_or_else(|| "virtual_machines.request_failed".to_owned());
+        let error = ApiError {
+            message: error_message(&code).map(str::to_owned).or(message),
+            code,
+            hint: None,
+            details: None,
+        };
+        let error = OutputError::from(error).with_status(Some(status.as_u16()));
+        bail!(error.format_error_output(json_format)?)
     }
     bail!("Request failed with status {status}.")
 }
