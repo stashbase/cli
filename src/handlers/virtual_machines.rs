@@ -198,7 +198,10 @@ async fn create_machine(
         .map(|machines| machines.into_iter().map(|m| m.id).collect())
         .unwrap_or_default();
     let mut result = virtual_machines::create(api_key, &public_key, location, json).await;
-    if result.is_err() {
+    // Only a dropped connection (no answer from the server) may mean the machine is still being
+    // created: look for it then. A refusal (limit reached, no allowance, ...) is shown right away.
+    let dropped = matches!(&result, Err(e) if e.downcast_ref::<reqwest::Error>().is_some());
+    if dropped {
         // The server may drop the request while the VM is still being created:
         // look for the new machine instead of failing.
         for _ in 0..36 {
