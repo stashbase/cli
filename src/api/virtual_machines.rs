@@ -18,6 +18,28 @@ pub struct Machine {
     pub ssh_command: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub running_since: Option<String>,
+    /// When the machine stops if it stays idle; absent while busy or stopped.
+    #[serde(default)]
+    pub idle_stop_at: Option<String>,
+    /// The latest reading (about once a minute) while the machine runs.
+    #[serde(default)]
+    pub metrics: Option<Metrics>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Metrics {
+    pub cpu_percent: f64,
+    pub memory_used_bytes: f64,
+    pub memory_total_bytes: f64,
+    pub storage_used_bytes: f64,
+    pub storage_total_bytes: f64,
+    pub measured_at: String,
 }
 
 /// The workspace's pooled machine allowance for the current period.

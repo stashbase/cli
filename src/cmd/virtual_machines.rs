@@ -13,6 +13,8 @@ pub enum VirtualMachineSubcommand {
     Create(VirtualMachineCreate),
     /// List your virtual machines
     List(VirtualMachineList),
+    /// Show a machine's state, CPU, memory, disk and how to connect
+    Info(VirtualMachineInfo),
     /// Show the workspace's machine time and data transfer for this period
     Usage(VirtualMachineUsage),
     /// Connect to a virtual machine: pick an existing one or create a new one
@@ -33,6 +35,14 @@ pub struct VirtualMachineCreate {}
 #[derive(Debug, Args)]
 #[command(override_usage = "vms list")]
 pub struct VirtualMachineList {}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "vms info <ID>")]
+pub struct VirtualMachineInfo {
+    /// Machine ID (vm_… or legacy UUID)
+    #[arg(value_name = "ID")]
+    pub id: String,
+}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "vms usage")]
