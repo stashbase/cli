@@ -1,4 +1,4 @@
-//! `stashbase vms create|list|info|metrics|usage|connect|start|stop|delete`: managed
+//! `stashbase vms create|list|info|metrics|autostop|usage|connect|start|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -35,6 +35,9 @@ pub async fn handle_virtual_machine_command(
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Metrics(args) => metrics(&api_key, &args.id, json, silent).await,
+        VirtualMachineSubcommand::Autostop(args) => {
+            autostop(&api_key, &args.id, args.mode == "on", json, silent).await
+        }
         VirtualMachineSubcommand::Usage(_) => usage(&api_key, json, silent).await,
         VirtualMachineSubcommand::Connect(args) => {
             run(&api_key, args.id, args.command, !args.no_tmux, json, silent).await
@@ -328,7 +331,16 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
             .unwrap_or_default();
         fields.push(("Running since", format!("{since}{up}")));
     }
-    if machine.state == "running" {
+    fields.push((
+        "Auto-stop",
+        if machine.auto_stop_enabled == Some(false) {
+            "off"
+        } else {
+            "on"
+        }
+        .to_owned(),
+    ));
+    if machine.state == "running" && machine.auto_stop_enabled != Some(false) {
         fields.push((
             "Idle stop",
             match &machine.idle_stop_at {
@@ -415,6 +427,24 @@ async fn metrics(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()
         ),
         ("Measured", ago),
     ]);
+    Ok(())
+}
+
+async fn autostop(api_key: &str, id: &str, enabled: bool, json: bool, silent: bool) -> Result<()> {
+    validate_id(id)?;
+    let machine = virtual_machines::set_auto_stop(api_key, id, enabled, json).await?;
+    if json {
+        println!("{}", get_formatted_json_string(&machine, true)?);
+    } else if !silent {
+        println!(
+            "{}",
+            if enabled {
+                format!("Machine {id} now stops when idle.")
+            } else {
+                format!("Machine {id} keeps running when idle. Usage limits still apply; stop it with `stashbase vms stop {id}`.")
+            }
+        );
+    }
     Ok(())
 }
 

@@ -17,6 +17,8 @@ pub enum VirtualMachineSubcommand {
     Info(VirtualMachineInfo),
     /// Show a running machine's CPU, memory and disk
     Metrics(VirtualMachineMetrics),
+    /// Turn stopping when idle on or off for a machine
+    Autostop(VirtualMachineAutostop),
     /// Show the workspace's machine time and data transfer for this period
     Usage(VirtualMachineUsage),
     /// Connect to a virtual machine: pick an existing one or create a new one
@@ -52,6 +54,17 @@ pub struct VirtualMachineMetrics {
     /// Machine ID (vm_… or legacy UUID)
     #[arg(value_name = "ID")]
     pub id: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "vms autostop <ID> <on|off>")]
+pub struct VirtualMachineAutostop {
+    /// Machine ID (vm_… or legacy UUID)
+    #[arg(value_name = "ID")]
+    pub id: String,
+    /// `on` stops the machine after a period without activity; `off` keeps it running
+    #[arg(value_name = "on|off", value_parser = ["on", "off"])]
+    pub mode: String,
 }
 
 #[derive(Debug, Args)]
