@@ -246,6 +246,8 @@ async fn create(api_key: &str, location: Option<&str>, json: bool, silent: bool)
 struct MachineRow {
     #[tabled(rename = "ID")]
     id: String,
+    #[tabled(rename = "Name")]
+    name: String,
     #[tabled(rename = "State")]
     state: String,
     #[tabled(rename = "SSH")]
@@ -267,6 +269,7 @@ async fn list(api_key: &str, json: bool, silent: bool) -> Result<()> {
             .filter(|m| m.state != "deleted")
             .map(|m| MachineRow {
                 id: m.id.clone(),
+                name: m.name.clone().unwrap_or_else(|| "---".to_owned()),
                 state: m.state.clone(),
                 // Plain SSH needs your key on the machine; `stashbase vms connect <id>` does not.
                 ssh: m
