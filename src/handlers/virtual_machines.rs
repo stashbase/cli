@@ -703,8 +703,10 @@ async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> 
     if let Some(mut spinner) = spinner.take() {
         spinner.clear();
     }
-    started?;
-    if !silent && !json {
+    let machine = started?;
+    if json {
+        println!("{}", get_formatted_json_string(&machine, true)?);
+    } else if !silent {
         println!("Started virtual machine {id}");
         println!("Connect with: stashbase vms connect {id}");
     }
@@ -713,9 +715,11 @@ async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> 
 
 async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     validate_id(id)?;
-    virtual_machines::stop(api_key, id, json).await?;
+    let machine = virtual_machines::stop(api_key, id, json).await?;
     // The key stays: `run` or `ssh` starts the machine again.
-    if !silent && !json {
+    if json {
+        println!("{}", get_formatted_json_string(&machine, true)?);
+    } else if !silent {
         println!("Stopped virtual machine {id}");
         println!("Start it again with: stashbase vms start {id}");
     }
@@ -724,9 +728,11 @@ async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
 
 async fn delete(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     validate_id(id)?;
-    virtual_machines::destroy(api_key, id, json).await?;
+    let machine = virtual_machines::destroy(api_key, id, json).await?;
     let _ = fs::remove_dir_all(keys_dir()?.join(id));
-    if !silent && !json {
+    if json {
+        println!("{}", get_formatted_json_string(&machine, true)?);
+    } else if !silent {
         println!("Deleted virtual machine {id}");
     }
     Ok(())
