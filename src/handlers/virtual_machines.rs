@@ -199,11 +199,13 @@ fn read_public_key(dir: &Path) -> Result<String> {
     }
 }
 
-/// Creates a machine and keeps its key locally. The request takes a while,
-/// so a spinner shows progress unless output is suppressed.
+/// Creates a machine and keeps its key locally. The server answers once the machine is recorded
+/// and keeps creating it in the cloud (about a minute); with `wait`, this follows it until it is
+/// running (`connect` needs that), otherwise it returns the machine while it is being created.
 async fn create_machine(
     api_key: &str,
     location: &str,
+    wait: bool,
     json: bool,
     silent: bool,
 ) -> Result<Machine> {
@@ -238,18 +240,49 @@ async fn create_machine(
             }
         }
     }
+    // The key belongs to the machine as soon as it is recorded.
+    if let Ok(machine) = &result {
+        fs::rename(&pending, keys.join(machine_uuid(&machine.id)?.to_string()))?;
+    }
+    if wait {
+        if let Ok(created) = &result {
+            if created.state == "creating" {
+                let id = created.id.clone();
+                // Up to about four minutes; creating usually takes one.
+                for _ in 0..80 {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let Ok(machines) = virtual_machines::list(api_key, json).await else {
+                        continue;
+                    };
+                    match machines.into_iter().find(|m| m.id == id) {
+                        Some(m) if m.state == "creating" => continue,
+                        Some(m) if m.state == "running" => {
+                            result = Ok(m);
+                            break;
+                        }
+                        Some(m) => {
+                            result = Err(anyhow::anyhow!(
+                                "The machine could not be created ({}). Delete it with `stashbase vms delete {id}` and try again.",
+                                m.error.unwrap_or(m.state)
+                            ));
+                            break;
+                        }
+                        None => continue,
+                    }
+                }
+            }
+        }
+    }
     if let Some(mut spinner) = spinner.take() {
         spinner.clear();
     }
-    let machine = match result {
-        Ok(machine) => machine,
+    match result {
+        Ok(machine) => Ok(machine),
         Err(error) => {
             let _ = fs::remove_dir_all(&pending);
-            return Err(error);
+            Err(error)
         }
-    };
-    fs::rename(&pending, keys.join(machine_uuid(&machine.id)?.to_string()))?;
-    Ok(machine)
+    }
 }
 
 async fn create(api_key: &str, location: Option<&str>, json: bool, silent: bool) -> Result<()> {
@@ -259,12 +292,18 @@ async fn create(api_key: &str, location: Option<&str>, json: bool, silent: bool)
         bail!("Pass --location us, eu or asia.");
     }
     let location = region(api_key, location, json).await?;
-    let machine = create_machine(api_key, &location, json, silent).await?;
+    let machine = create_machine(api_key, &location, false, json, silent).await?;
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
-        println!("Created virtual machine {}", machine.id);
-        println!("Connect with: stashbase vms connect {}", machine.id);
+        println!(
+            "Virtual machine {} is being created; it is usually ready in about a minute.",
+            machine.id
+        );
+        println!(
+            "Check it with `stashbase vms list`, then connect with `stashbase vms connect {}`.",
+            machine.id
+        );
     }
     Ok(())
 }
@@ -614,7 +653,9 @@ async fn pick_or_create(
             eprintln!("No existing virtual machines; creating a new one.");
         }
         let location = region(api_key, location, json).await?;
-        return Ok(create_machine(api_key, &location, json, silent).await?.id);
+        return Ok(create_machine(api_key, &location, true, json, silent)
+            .await?
+            .id);
     }
     let mut labels: Vec<String> = usable
         .iter()
@@ -625,7 +666,9 @@ async fn pick_or_create(
         Some(index) if index < usable.len() => Ok(usable[index].id.clone()),
         Some(_) => {
             let location = region(api_key, location, json).await?;
-            Ok(create_machine(api_key, &location, json, silent).await?.id)
+            Ok(create_machine(api_key, &location, true, json, silent)
+                .await?
+                .id)
         }
         None => bail!("Cancelled."),
     }
