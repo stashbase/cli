@@ -177,6 +177,24 @@ fn error_message(code: &str) -> Option<&'static str> {
     })
 }
 
+/// The not-found error for a machine missing from the list, formatted like the API's own.
+pub fn not_found(json_format: bool) -> anyhow::Error {
+    let code = "virtual_machines.not_found".to_owned();
+    let error = ApiError {
+        message: error_message(&code).map(str::to_owned),
+        code,
+        hint: None,
+        details: None,
+    };
+    match OutputError::from(error)
+        .with_status(Some(404))
+        .format_error_output(json_format)
+    {
+        Ok(text) => anyhow::anyhow!(text),
+        Err(error) => error.into(),
+    }
+}
+
 fn url(path: &str) -> String {
     format!("{}/v1/virtual-machines{}", client::get_api_url(), path)
 }
