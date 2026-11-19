@@ -715,6 +715,29 @@ async fn run(
     connect(api_key, &id, &command, use_tmux, json, silent).await
 }
 
+/// Follows a machine that is being created or started until it runs (up to about five minutes:
+/// restoring an archived machine takes a few).
+async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machine> {
+    for _ in 0..100 {
+        if let Ok(machines) = virtual_machines::list(api_key, json).await {
+            match machines
+                .into_iter()
+                .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
+            {
+                Some(m) if m.state == "running" => return Ok(m),
+                Some(m) if matches!(m.state.as_str(), "creating" | "resuming") => {}
+                Some(m) => bail!(
+                    "Virtual machine {id} did not start ({}). Try `stashbase vms start {id}` again.",
+                    m.error.unwrap_or(m.state)
+                ),
+                None => return Err(virtual_machines::not_found(json)),
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    }
+    bail!("Virtual machine {id} is still starting; try connecting again shortly.")
+}
+
 /// Resumes the machine if it is stopped, then opens an interactive shell, or
 /// runs `command` there, through the user's own `ssh`.
 async fn connect(
@@ -732,16 +755,24 @@ async fn connect(
         .into_iter()
         .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
         .ok_or_else(|| virtual_machines::not_found(json))?;
+    // Starting returns at once; the machine is followed until it runs. One already being created
+    // or started is waited for the same way.
     let machine = match machine.state.as_str() {
         "running" => machine,
-        "stopped" | "error" => {
+        "stopped" | "error" | "creating" | "resuming" => {
             let mut spinner =
                 (!silent && !json).then(|| new_spinner("Starting the machine...", Streams::Stderr));
-            let resumed = virtual_machines::resume(api_key, id, json).await;
+            let started = async {
+                if matches!(machine.state.as_str(), "stopped" | "error") {
+                    virtual_machines::resume(api_key, id, json).await?;
+                }
+                wait_until_running(api_key, id, json).await
+            }
+            .await;
             if let Some(mut spinner) = spinner.take() {
                 spinner.clear();
             }
-            resumed?
+            started?
         }
         other => return Err(virtual_machines::busy(id, other, json)),
     };
@@ -867,7 +898,7 @@ async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> 
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
-        println!("Started virtual machine {id}");
+        println!("Virtual machine {id} is starting; it is usually ready within a minute (a few if it was archived).");
         println!("Connect with: stashbase vms connect {id}");
     }
     Ok(())
