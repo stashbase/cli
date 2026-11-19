@@ -410,7 +410,7 @@ async fn find_machine(api_key: &str, id: &str, json: bool, silent: bool) -> Resu
     machines?
         .into_iter()
         .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
-        .with_context(|| format!("No virtual machine {id}."))
+        .ok_or_else(|| virtual_machines::not_found(json))
 }
 
 /// Label/value lines, labels padded to one width.
@@ -731,7 +731,7 @@ async fn connect(
     let machine = machines
         .into_iter()
         .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
-        .with_context(|| format!("No virtual machine {id}."))?;
+        .ok_or_else(|| virtual_machines::not_found(json))?;
     let machine = match machine.state.as_str() {
         "running" => machine,
         "stopped" | "error" => {
