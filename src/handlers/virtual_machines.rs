@@ -17,7 +17,7 @@ use crate::{
     cmd::virtual_machines::{VirtualMachineCommand, VirtualMachineSubcommand},
     handlers::run::entry::shell_quote,
     utils::{
-        interaction::select,
+        interaction::{input_optional, select},
         output::get_formatted_json_string,
         spinner::{new_spinner, request_spinner, Streams},
         tables::build::build_table,
@@ -51,7 +51,14 @@ async fn run_command(
 ) -> Result<()> {
     match cmd.subcommand {
         VirtualMachineSubcommand::Create(args) => {
-            create(&api_key, args.location.as_deref(), json, silent).await
+            create(
+                &api_key,
+                args.location.as_deref(),
+                args.name.as_deref(),
+                json,
+                silent,
+            )
+            .await
         }
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
@@ -205,6 +212,7 @@ fn read_public_key(dir: &Path) -> Result<String> {
 async fn create_machine(
     api_key: &str,
     location: &str,
+    name: Option<&str>,
     wait: bool,
     json: bool,
     silent: bool,
@@ -218,7 +226,7 @@ async fn create_machine(
         .await
         .map(|machines| machines.into_iter().map(|m| m.id).collect())
         .unwrap_or_default();
-    let mut result = virtual_machines::create(api_key, &public_key, location, json).await;
+    let mut result = virtual_machines::create(api_key, &public_key, location, name, json).await;
     // Only a dropped connection (no answer from the server) may mean the machine is still being
     // created: look for it then. A refusal (limit reached, no allowance, ...) is shown right away.
     let dropped = matches!(&result, Err(e) if e.downcast_ref::<reqwest::Error>().is_some());
@@ -285,14 +293,29 @@ async fn create_machine(
     }
 }
 
-async fn create(api_key: &str, location: Option<&str>, json: bool, silent: bool) -> Result<()> {
-    if location.is_none()
-        && (json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal())
-    {
+async fn create(
+    api_key: &str,
+    location: Option<&str>,
+    name: Option<&str>,
+    json: bool,
+    silent: bool,
+) -> Result<()> {
+    let interactive = !json && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+    if location.is_none() && !interactive {
         bail!("Pass --location us, eu or asia.");
     }
     let location = region(api_key, location, json).await?;
-    let machine = create_machine(api_key, &location, false, json, silent).await?;
+    // The name is optional: asked for in a terminal (Enter skips it), never required in scripts.
+    let asked;
+    let name = match name {
+        Some(name) => Some(name.trim()).filter(|n| !n.is_empty()),
+        None if interactive => {
+            asked = input_optional("Name (optional, press Enter to skip)");
+            Some(asked.trim()).filter(|n| !n.is_empty())
+        }
+        None => None,
+    };
+    let machine = create_machine(api_key, &location, name, false, json, silent).await?;
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
@@ -653,7 +676,7 @@ async fn pick_or_create(
             eprintln!("No existing virtual machines; creating a new one.");
         }
         let location = region(api_key, location, json).await?;
-        return Ok(create_machine(api_key, &location, true, json, silent)
+        return Ok(create_machine(api_key, &location, None, true, json, silent)
             .await?
             .id);
     }
@@ -666,7 +689,7 @@ async fn pick_or_create(
         Some(index) if index < usable.len() => Ok(usable[index].id.clone()),
         Some(_) => {
             let location = region(api_key, location, json).await?;
-            Ok(create_machine(api_key, &location, true, json, silent)
+            Ok(create_machine(api_key, &location, None, true, json, silent)
                 .await?
                 .id)
         }

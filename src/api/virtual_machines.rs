@@ -172,6 +172,7 @@ fn error_message(code: &str) -> Option<&'static str> {
         "host_key_unavailable" => "The machine is still starting. Try again in a minute.",
         "rate_limited" => "Too many requests. Wait a moment and try again.",
         "not_found" => "No such machine in this workspace.",
+        "name_invalid" => "Use letters, numbers, spaces, dots, dashes or underscores for the name, up to 40 characters.",
         _ => return None,
     })
 }
@@ -184,9 +185,13 @@ pub async fn create(
     api_key: &str,
     ssh_public_key: &str,
     location: &str,
+    name: Option<&str>,
     json: bool,
 ) -> Result<Machine> {
-    let body = serde_json::json!({ "ssh_public_key": ssh_public_key, "location": location });
+    let mut body = serde_json::json!({ "ssh_public_key": ssh_public_key, "location": location });
+    if let Some(name) = name {
+        body["name"] = name.into();
+    }
     send(
         http_client()?
             .post(url(""))

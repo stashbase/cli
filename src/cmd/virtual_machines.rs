@@ -33,8 +33,13 @@ pub enum VirtualMachineSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "vms create [--location <us|eu|asia>]")]
+#[command(override_usage = "vms create [--location <us|eu|asia>] [--name <NAME>]")]
 pub struct VirtualMachineCreate {
+    /// A name for the machine (up to 40 letters, numbers, spaces, dots, dashes or underscores).
+    /// Asked for in a terminal when omitted; leave it empty to skip.
+    #[arg(long)]
+    pub name: Option<String>,
+
     /// Where to create the machine: us (United States), eu (Europe) or asia (Asia). Pick the
     /// closest for a responsive terminal. Omitted in a terminal, you pick from the offered
     /// locations with their cloud regions; required in scripts.

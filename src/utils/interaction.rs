@@ -30,6 +30,15 @@ pub fn input(prompt: &str) -> String {
         .unwrap_or_else(|_| "".to_string())
 }
 
+/// Text input that may be left empty (Enter skips it).
+pub fn input_optional(prompt: &str) -> String {
+    Input::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt)
+        .allow_empty(true)
+        .interact_text()
+        .unwrap_or_default()
+}
+
 pub fn select(prompt: &str, selections: Vec<String>) -> Option<usize> {
     Select::with_theme(&ColorfulTheme::default())
         .with_prompt(prompt)
