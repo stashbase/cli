@@ -880,7 +880,7 @@ async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
-        println!("Stopped virtual machine {id}");
+        println!("Virtual machine {id} is stopping; its disk and files are kept.");
         println!("Start it again with: stashbase vms start {id}");
     }
     Ok(())
