@@ -868,7 +868,7 @@ async fn delete(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()>
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
-        println!("Deleted virtual machine {id}");
+        println!("Virtual machine {id} is being deleted with its disk; it disappears from `stashbase vms list` when done.");
     }
     Ok(())
 }

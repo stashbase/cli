@@ -9,7 +9,7 @@ use crate::{
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Machine {
     pub id: String,
-    /// creating, running, stopping, stopped, resuming, error or deleted.
+    /// creating, running, stopping, stopped, resuming, deleting, error or deleted.
     pub state: String,
     #[serde(default)]
     pub ip: Option<String>,
