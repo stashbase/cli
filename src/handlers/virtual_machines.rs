@@ -17,7 +17,7 @@ use crate::{
     cmd::virtual_machines::{VirtualMachineCommand, VirtualMachineSubcommand},
     handlers::run::entry::shell_quote,
     utils::{
-        interaction::{input_optional, select},
+        interaction::{confirm_text, input_optional, select},
         output::get_formatted_json_string,
         spinner::{new_spinner, request_spinner, Streams},
         tables::build::build_table,
@@ -81,7 +81,9 @@ async fn run_command(
         }
         VirtualMachineSubcommand::Start(args) => start(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
-        VirtualMachineSubcommand::Delete(args) => delete(&api_key, &args.id, json, silent).await,
+        VirtualMachineSubcommand::Delete(args) => {
+            delete(&api_key, &args.id, args.yes, json, silent).await
+        }
     }
 }
 
@@ -884,8 +886,22 @@ async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     Ok(())
 }
 
-async fn delete(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
+async fn delete(api_key: &str, id: &str, yes: bool, json: bool, silent: bool) -> Result<()> {
     validate_id(id)?;
+    // Deleting loses every file on the machine: confirm in a terminal, require --yes elsewhere.
+    if !yes {
+        let interactive =
+            !json && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+        if !interactive {
+            bail!("Deleting a machine loses all its files. Pass --yes to delete without a prompt.");
+        }
+        eprintln!(
+            "This permanently deletes virtual machine {id}, its disk and any saved snapshot. Files on it cannot be recovered."
+        );
+        if confirm_text("Delete") != "Delete" {
+            bail!("Cancelled.");
+        }
+    }
     let machine = virtual_machines::destroy(api_key, id, json).await?;
     let _ = fs::remove_dir_all(keys_dir()?.join(id));
     if json {

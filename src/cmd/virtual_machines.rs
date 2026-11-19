@@ -126,9 +126,13 @@ pub struct VirtualMachineStop {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "vms delete <ID>")]
+#[command(override_usage = "vms delete <ID> [--yes]")]
 pub struct VirtualMachineDelete {
     /// Machine ID (vm_… or legacy UUID) to delete
     #[arg(value_name = "ID")]
     pub id: String,
+
+    /// Delete without asking for confirmation (required in scripts)
+    #[arg(long = "yes", short = 'y')]
+    pub yes: bool,
 }
