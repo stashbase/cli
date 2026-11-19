@@ -743,7 +743,7 @@ async fn connect(
             }
             resumed?
         }
-        other => bail!("Virtual machine {id} is {other}; try again shortly."),
+        other => return Err(virtual_machines::busy(id, other, json)),
     };
     let ip = machine.ip.context("The machine has no address yet.")?;
     // Every connection uses a short-lived certificate for this computer's key, issued by the

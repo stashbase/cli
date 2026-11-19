@@ -177,22 +177,38 @@ fn error_message(code: &str) -> Option<&'static str> {
     })
 }
 
-/// The not-found error for a machine missing from the list, formatted like the API's own.
-pub fn not_found(json_format: bool) -> anyhow::Error {
-    let code = "virtual_machines.not_found".to_owned();
+/// An error the CLI detects itself, formatted like the API's own errors.
+fn local_error(code: &str, message: String, status: u16, json_format: bool) -> anyhow::Error {
     let error = ApiError {
-        message: error_message(&code).map(str::to_owned),
-        code,
+        code: code.to_owned(),
+        message: Some(message),
         hint: None,
         details: None,
     };
     match OutputError::from(error)
-        .with_status(Some(404))
+        .with_status(Some(status))
         .format_error_output(json_format)
     {
         Ok(text) => anyhow::anyhow!(text),
         Err(error) => error.into(),
     }
+}
+
+/// The not-found error for a machine missing from the list.
+pub fn not_found(json_format: bool) -> anyhow::Error {
+    let code = "virtual_machines.not_found";
+    let message = error_message(code).unwrap_or("No such machine in this workspace.");
+    local_error(code, message.to_owned(), 404, json_format)
+}
+
+/// A machine that is changing state (creating, stopping, resuming, deleting) cannot connect yet.
+pub fn busy(id: &str, state: &str, json_format: bool) -> anyhow::Error {
+    local_error(
+        "virtual_machines.operation_busy",
+        format!("Virtual machine {id} is {state}; try again shortly."),
+        409,
+        json_format,
+    )
 }
 
 fn url(path: &str) -> String {
