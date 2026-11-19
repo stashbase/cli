@@ -898,7 +898,7 @@ async fn delete(api_key: &str, id: &str, yes: bool, json: bool, silent: bool) ->
         eprintln!(
             "This permanently deletes virtual machine {id}, its disk and any saved snapshot. Files on it cannot be recovered."
         );
-        if confirm_text("Delete") != "Delete" {
+        if confirm_text("Delete machine") != "Delete machine" {
             bail!("Cancelled.");
         }
     }
