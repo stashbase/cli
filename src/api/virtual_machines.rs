@@ -159,7 +159,7 @@ async fn send<T: serde::de::DeserializeOwned>(
 /// printed as they are.
 fn error_message(code: &str) -> Option<&'static str> {
     Some(match code {
-        "access.missing_api_key_permission" => "This API key does not allow virtual machines access. Create a personal API key with \"Allow virtual machines access\" turned on in the dashboard.",
+        "access.missing_api_key_permission" => "This API key can't manage virtual machines. Create a personal API key with \"Manage virtual machines\" turned on in the dashboard.",
         "access.two_factor_required" => "Creating a machine requires two-factor authentication. Turn it on in the dashboard: Account settings → Authentication.",
         "conflict.trial_not_claimed" => "Machines need the one-time free trial or a paid plan. Ask the workspace owner to claim the trial in the dashboard.",
         "quota.virtual_machine_hours_exhausted" => "This workspace has used all its included machine time. The owner can allow extra hours on a paid plan, or upgrade.",
