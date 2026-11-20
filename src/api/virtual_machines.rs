@@ -132,13 +132,17 @@ async fn send<T: serde::de::DeserializeOwned>(
         return Ok(body.data);
     }
     let text = response.text().await.unwrap_or_default();
-    if let Ok(body) = serde_json::from_str::<ApiErrorResponse>(&text) {
+    if let Ok(mut body) = serde_json::from_str::<ApiErrorResponse>(&text) {
+        // The API's message, unless the CLI has a more specific one for this code.
+        if let Some(message) = error_message(&body.error.code) {
+            body.error.message = Some(message.to_owned());
+        }
         let error = OutputError::from(body.error).with_status(Some(status.as_u16()));
         bail!(error.format_error_output(json_format)?)
     }
     if let Ok(PlainError { code, message }) = serde_json::from_str::<PlainError>(&text) {
         // Formatted like every other API error, with a readable message for known codes.
-        let code = code.unwrap_or_else(|| "virtual_machines.request_failed".to_owned());
+        let code = code.unwrap_or_else(|| "server.request_failed".to_owned());
         let error = ApiError {
             message: error_message(&code).map(str::to_owned).or(message),
             code,
@@ -154,25 +158,26 @@ async fn send<T: serde::de::DeserializeOwned>(
 /// Readable messages for the errors users run into, as in the dashboard. Unknown codes are
 /// printed as they are.
 fn error_message(code: &str) -> Option<&'static str> {
-    Some(match code.strip_prefix("virtual_machines.")? {
-        "two_factor_required" => "Creating a machine requires two-factor authentication. Turn it on in the dashboard: Account settings → Authentication.",
-        "trial_not_claimed" => "Machines need the one-time free trial or a paid plan. Ask the workspace owner to claim the trial in the dashboard.",
-        "allowance_exhausted" => "This workspace has used all its included machine time. The owner can allow extra hours on a paid plan, or upgrade.",
-        "egress_exhausted" => "This workspace has used all its included data transfer for machines.",
-        "plan_configuration_unavailable" => "Machines are not available for this workspace's plan. Contact support.",
-        "member_limit" => "You have reached your machine limit. Stopped machines count; delete one with `stashbase vms delete <ID>`.",
-        "not_invited" => "Your account is not enabled for virtual machines yet.",
-        "feature_disabled" => "Virtual machines are not enabled.",
-        "access_suspended" => "Machine access is suspended for this account or workspace.",
-        "budget_limit" => "Machines are temporarily unavailable. Try again later.",
-        "setup_not_ready" => "Virtual machines are not available yet. Try again later.",
-        "operation_busy" => "Another operation is running on this machine. Try again shortly.",
-        "invalid_transition" => "The machine cannot do that in its current state. Check it with `stashbase vms list`.",
-        "provision_failed" => "The machine could not be started. Try again.",
-        "host_key_unavailable" => "The machine is still starting. Try again in a minute.",
-        "rate_limited" => "Too many requests. Wait a moment and try again.",
-        "not_found" => "No such machine in this workspace.",
-        "name_invalid" => "Use letters, numbers, spaces, dots, dashes or underscores for the name, up to 40 characters.",
+    Some(match code {
+        "access.missing_api_key_permission" => "This API key does not allow virtual machines access. Create a personal API key with \"Allow virtual machines access\" turned on in the dashboard.",
+        "access.two_factor_required" => "Creating a machine requires two-factor authentication. Turn it on in the dashboard: Account settings → Authentication.",
+        "conflict.trial_not_claimed" => "Machines need the one-time free trial or a paid plan. Ask the workspace owner to claim the trial in the dashboard.",
+        "quota.virtual_machine_hours_exhausted" => "This workspace has used all its included machine time. The owner can allow extra hours on a paid plan, or upgrade.",
+        "quota.virtual_machine_egress_exhausted" => "This workspace has used all its included data transfer for machines.",
+        "server.virtual_machines_unavailable" => "Virtual machines are temporarily unavailable. Try again later.",
+        "quota.virtual_machine_limit_reached" => "You have reached your machine limit. Stopped machines count; delete one with `stashbase vms delete <ID>`.",
+        "access.virtual_machines_not_invited" => "Your account is not enabled for virtual machines yet.",
+        "resource.virtual_machines_not_available" => "Virtual machines are not enabled.",
+        "access.virtual_machines_suspended" => "Machine access is suspended for this account or workspace.",
+        "quota.virtual_machine_usage_limit_reached" => "Machines are temporarily unavailable. Try again later.",
+        "conflict.virtual_machine_not_ready" => "Virtual machines are not available yet. Try again later.",
+        "conflict.virtual_machine_busy" => "Another operation is running on this machine. Try again shortly.",
+        "conflict.invalid_virtual_machine_state" => "The machine cannot do that in its current state. Check it with `stashbase vms list`.",
+        "server.virtual_machine_provision_failed" => "The machine could not be started. Try again.",
+        "server.host_key_unavailable" => "The machine is still starting. Try again in a minute.",
+        "rate_limit.too_many_requests" => "Too many requests. Wait a moment and try again.",
+        "resource.virtual_machine_not_found" => "No such machine in this workspace.",
+        "validation.invalid_virtual_machine_name" => "Use letters, numbers, spaces, dots, dashes or underscores for the name, up to 40 characters.",
         _ => return None,
     })
 }
@@ -196,7 +201,7 @@ fn local_error(code: &str, message: String, status: u16, json_format: bool) -> a
 
 /// The not-found error for a machine missing from the list.
 pub fn not_found(json_format: bool) -> anyhow::Error {
-    let code = "virtual_machines.not_found";
+    let code = "resource.virtual_machine_not_found";
     let message = error_message(code).unwrap_or("No such machine in this workspace.");
     local_error(code, message.to_owned(), 404, json_format)
 }
@@ -204,7 +209,7 @@ pub fn not_found(json_format: bool) -> anyhow::Error {
 /// A machine that is changing state (creating, stopping, resuming, deleting) cannot connect yet.
 pub fn busy(id: &str, state: &str, json_format: bool) -> anyhow::Error {
     local_error(
-        "virtual_machines.operation_busy",
+        "conflict.virtual_machine_busy",
         format!("Virtual machine {id} is {state}; try again shortly."),
         409,
         json_format,
