@@ -70,12 +70,16 @@ pub struct Allowance {
     pub included_seconds: f64,
     pub used_seconds: f64,
     pub remaining_seconds: f64,
+    /// The most the owner allows to be billed past the included usage (hours and traffic), cents.
     #[serde(default)]
-    pub overage_cap_seconds: f64,
+    pub overage_cap_cents: f64,
     #[serde(default)]
     pub overage_used_seconds: f64,
+    /// What the extra hours and traffic so far cost, in USD cents.
     #[serde(default)]
     pub overage_cents: f64,
+    #[serde(default)]
+    pub egress_overage_bytes: f64,
     #[serde(default)]
     pub included_egress_bytes: f64,
     #[serde(default)]

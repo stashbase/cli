@@ -592,21 +592,32 @@ async fn usage(api_key: &str, json: bool, silent: bool) -> Result<()> {
         hours(a.used_seconds.min(a.included_seconds)),
         hours(a.included_seconds)
     );
-    if a.overage_cap_seconds > 0.0 {
-        println!(
-            "Extra hours:  {} of {} used, ${:.2} so far (billed on the next invoice)",
-            hours(a.overage_used_seconds),
-            hours(a.overage_cap_seconds),
-            a.overage_cents / 100.0
-        );
-    }
     println!("Time left:    {}", hours(a.remaining_seconds));
-    // A fair-use limit, shown only once it gets close (as in the dashboard).
-    if a.included_egress_bytes > 0.0 && a.used_egress_bytes >= a.included_egress_bytes * 0.8 {
+    // Shown always, as in the dashboard: past the included traffic it is billed or stops machines.
+    if a.included_egress_bytes > 0.0 {
         println!(
             "Data out:     {:.1} of {:.0} GB",
             a.used_egress_bytes / 1e9,
             a.included_egress_bytes / 1e9
+        );
+    }
+    if a.overage_cap_cents > 0.0 {
+        let mut extra = Vec::new();
+        if a.overage_used_seconds > 0.0 {
+            extra.push(hours(a.overage_used_seconds));
+        }
+        if a.egress_overage_bytes > 0.0 {
+            extra.push(format!("{:.1} GB", a.egress_overage_bytes / 1e9));
+        }
+        println!(
+            "Extra usage:  ${:.2} of ${:.2}{} (billed on the next invoice)",
+            a.overage_cents / 100.0,
+            a.overage_cap_cents / 100.0,
+            if extra.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", extra.join(" and "))
+            }
         );
     }
     if let Some(m) = &usage.machines {
