@@ -168,6 +168,7 @@ fn error_message(code: &str) -> Option<&'static str> {
         "conflict.trial_not_claimed" => "Machines need the one-time free trial or a paid plan. Ask the workspace owner to claim the trial in the dashboard.",
         "quota.virtual_machine_hours_exhausted" => "This workspace has used all its included machine time. The owner can allow extra hours on a paid plan, or upgrade.",
         "quota.virtual_machine_egress_exhausted" => "This workspace has used all its included data transfer for machines.",
+        "quota.virtual_machine_overage_cap_reached" => "This workspace reached its extra usage cap for this billing period. The workspace owner can raise it in the dashboard; run `stashbase vms usage` to see what was used.",
         "server.virtual_machines_unavailable" => "Virtual machines are temporarily unavailable. Try again later.",
         "quota.virtual_machine_limit_reached" => "You have reached your machine limit. Stopped machines count; delete one with `stashbase vms delete <ID>`.",
         "access.virtual_machines_not_invited" => "Your account is not enabled for virtual machines yet.",
