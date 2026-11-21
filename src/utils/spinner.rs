@@ -101,6 +101,15 @@ pub struct Spinner {
 
 impl Spinner {
     fn start(message: Cow<'static, str>, stream: Streams) -> Self {
+        Self::start_with(message, stream, false)
+    }
+
+    /// Like `start`, with the elapsed time (m:ss) after the message, for waits that take minutes.
+    fn start_timed(message: Cow<'static, str>, stream: Streams) -> Self {
+        Self::start_with(message, stream, true)
+    }
+
+    fn start_with(message: Cow<'static, str>, stream: Streams, timed: bool) -> Self {
         let still_spinning = Arc::new(AtomicBool::new(true));
         let thread_handle = thread::spawn({
             let still_spinning = Arc::clone(&still_spinning);
@@ -108,12 +117,19 @@ impl Spinner {
                 let frames = spinner_frames();
                 let frame_width = frames.frames[0].chars().count();
                 let (terminal_width, _) = get_terminal_size();
-                let message = fit_message(&message, frame_width, terminal_width);
+                let started = std::time::Instant::now();
                 let mut drawn_width = 0;
                 for frame in frames.frames.iter().cycle() {
                     if !still_spinning.load(Ordering::Relaxed) {
                         break;
                     }
+                    let text: Cow<str> = if timed {
+                        let secs = started.elapsed().as_secs();
+                        Cow::Owned(format!("{message} {}:{:02}", secs / 60, secs % 60))
+                    } else {
+                        Cow::Borrowed(&message)
+                    };
+                    let message = fit_message(&text, frame_width, terminal_width);
                     let painted_frame = frame.cyan().to_string();
                     let (line, width) =
                         render_frame(&painted_frame, frame_width, &message, drawn_width);
@@ -160,6 +176,11 @@ impl Drop for Spinner {
 
 pub fn new_spinner(message: impl Into<Cow<'static, str>>, stream: Streams) -> Spinner {
     Spinner::start(message.into(), stream)
+}
+
+/// A spinner that shows how long it has been running, for waits that can take minutes.
+pub fn new_timed_spinner(message: impl Into<Cow<'static, str>>, stream: Streams) -> Spinner {
+    Spinner::start_timed(message.into(), stream)
 }
 
 pub fn request_spinner() -> Spinner {

@@ -18,6 +18,9 @@ pub struct Machine {
     pub ssh_command: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Stopped long enough to be saved as a snapshot: starting it restores the disk (minutes).
+    #[serde(default)]
+    pub archived: Option<bool>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]

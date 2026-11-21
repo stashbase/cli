@@ -19,7 +19,7 @@ use crate::{
     utils::{
         interaction::{confirm_text, input_optional, select},
         output::get_formatted_json_string,
-        spinner::{new_spinner, request_spinner, Streams},
+        spinner::{new_spinner, new_timed_spinner, request_spinner, Streams},
         tables::build::build_table,
     },
 };
@@ -179,8 +179,8 @@ async fn certificate_when_ready(
         match virtual_machines::certificate(api_key, id, public_key, json).await {
             Err(error) if attempt < 24 && format!("{error:#}").contains("host_key_unavailable") => {
                 if spinner.is_none() && !silent && !json {
-                    spinner = Some(new_spinner(
-                        "Waiting for the machine to finish starting...",
+                    spinner = Some(new_timed_spinner(
+                        "Waiting for the machine to finish booting...",
                         Streams::Stderr,
                     ));
                 }
@@ -771,8 +771,16 @@ async fn connect(
     let machine = match machine.state.as_str() {
         "running" => machine,
         "stopped" | "error" | "creating" | "resuming" => {
+            // Says how long to expect: an archived machine restores its disk first (minutes).
+            let message = if machine.archived == Some(true) {
+                "Restoring the machine from its archive, usually 2-3 minutes..."
+            } else if machine.state == "creating" {
+                "Creating the machine, usually about a minute..."
+            } else {
+                "Starting the machine, usually under a minute..."
+            };
             let mut spinner =
-                (!silent && !json).then(|| new_spinner("Starting the machine...", Streams::Stderr));
+                (!silent && !json).then(|| new_timed_spinner(message, Streams::Stderr));
             let started = async {
                 if matches!(machine.state.as_str(), "stopped" | "error") {
                     virtual_machines::resume(api_key, id, json).await?;
