@@ -21,6 +21,9 @@ pub struct Machine {
     /// Stopped long enough to be saved as a snapshot: starting it restores the disk (minutes).
     #[serde(default)]
     pub archived: Option<bool>,
+    /// Running and accepting SSH connections (its host key reported and SSH answering).
+    #[serde(default)]
+    pub ready: Option<bool>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]

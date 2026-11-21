@@ -735,7 +735,9 @@ async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machi
                 .into_iter()
                 .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
             {
-                Some(m) if m.state == "running" => return Ok(m),
+                // Ready means SSH answers; older backends without the flag count as ready.
+                Some(m) if m.state == "running" && m.ready != Some(false) => return Ok(m),
+                Some(m) if m.state == "running" => {}
                 Some(m) if matches!(m.state.as_str(), "creating" | "resuming") => {}
                 Some(m) => bail!(
                     "Virtual machine {id} did not start ({}). Try `stashbase vms start {id}` again.",
@@ -769,7 +771,21 @@ async fn connect(
     // Starting returns at once; the machine is followed until it runs. One already being created
     // or started is waited for the same way.
     let machine = match machine.state.as_str() {
-        "running" => machine,
+        "running" if machine.ready != Some(false) => machine,
+        // Running but SSH does not answer yet (still booting): wait for it like a start.
+        "running" => {
+            let mut spinner = (!silent && !json).then(|| {
+                new_spinner(
+                    "Waiting for the machine to finish booting...",
+                    Streams::Stderr,
+                )
+            });
+            let started = wait_until_running(api_key, id, json).await;
+            if let Some(mut spinner) = spinner.take() {
+                spinner.clear();
+            }
+            started?
+        }
         "stopped" | "error" | "creating" | "resuming" => {
             // An archived machine restores its disk first, which takes minutes: say so.
             let message = if machine.archived == Some(true) {
@@ -851,7 +867,9 @@ async fn connect(
         .arg(&key)
         .args(["-o", "IdentitiesOnly=yes"])
         .args(["-o", "LogLevel=ERROR"])
-        .args(["-o", "ConnectTimeout=10"])
+        // Short attempts: a first connection dropped while the machine settles costs seconds, not
+        // ten; the attempts still add up to a long enough wait.
+        .args(["-o", "ConnectTimeout=3"])
         .args(["-o", "ConnectionAttempts=30"]);
     if pinned {
         ssh.arg("-o")
