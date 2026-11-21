@@ -771,13 +771,13 @@ async fn connect(
     let machine = match machine.state.as_str() {
         "running" => machine,
         "stopped" | "error" | "creating" | "resuming" => {
-            // Says how long to expect: an archived machine restores its disk first (minutes).
+            // An archived machine restores its disk first, which takes minutes; the time shows it moving.
             let message = if machine.archived == Some(true) {
-                "Restoring the machine from its archive, usually 2-3 minutes..."
+                "Restoring the machine from its archive..."
             } else if machine.state == "creating" {
-                "Creating the machine, usually about a minute..."
+                "Creating the machine..."
             } else {
-                "Starting the machine, usually under a minute..."
+                "Starting the machine..."
             };
             let mut spinner =
                 (!silent && !json).then(|| new_timed_spinner(message, Streams::Stderr));
