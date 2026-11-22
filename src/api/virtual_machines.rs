@@ -33,7 +33,10 @@ pub struct Machine {
     /// When the machine stops if it stays idle; absent while busy or stopped.
     #[serde(default)]
     pub idle_stop_at: Option<String>,
-    /// False when idle auto-stop is turned off (absent means on).
+    /// Until when a suspended machine's session is kept; then it is shut down and archived.
+    #[serde(default)]
+    pub session_kept_until: Option<String>,
+    /// False when auto-suspend is turned off (absent means on); the API still calls it auto-stop.
     #[serde(default)]
     pub auto_stop_enabled: Option<bool>,
     /// The latest reading (about once a minute) while the machine runs.

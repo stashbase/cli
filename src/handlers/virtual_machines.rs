@@ -1,4 +1,4 @@
-//! `stashbase vms create|list|info|metrics|autostop|usage|connect|start|stop|delete`: managed
+//! `stashbase vms create|list|info|metrics|autosuspend|usage|connect|start|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -63,8 +63,8 @@ async fn run_command(
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Metrics(args) => metrics(&api_key, &args.id, json, silent).await,
-        VirtualMachineSubcommand::Autostop(args) => {
-            autostop(&api_key, &args.id, args.mode == "on", json, silent).await
+        VirtualMachineSubcommand::Autosuspend(args) => {
+            autosuspend(&api_key, &args.id, args.mode == "on", json, silent).await
         }
         VirtualMachineSubcommand::Usage(_) => usage(&api_key, json, silent).await,
         VirtualMachineSubcommand::Connect(args) => {
@@ -443,7 +443,7 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
         fields.push(("Running since", format!("{since}{up}")));
     }
     fields.push((
-        "Auto-stop",
+        "Auto-suspend",
         if machine.auto_stop_enabled == Some(false) {
             "off"
         } else {
@@ -453,7 +453,7 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     ));
     if machine.state == "running" && machine.auto_stop_enabled != Some(false) {
         fields.push((
-            "Idle stop",
+            "Idle suspend",
             match &machine.idle_stop_at {
                 Some(at) => {
                     let left = minutes_until(at)
@@ -464,6 +464,12 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
                 None => "busy, stays on".to_owned(),
             },
         ));
+    }
+    if let Some(note) = state_note(&machine.state) {
+        fields.push(("Status", note.to_owned()));
+    }
+    if let Some(until) = &machine.session_kept_until {
+        fields.push(("Session kept until", until.clone()));
     }
     if let Some(e) = &machine.error {
         fields.push(("Error", e.clone()));
@@ -541,7 +547,34 @@ async fn metrics(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()
     Ok(())
 }
 
-async fn autostop(api_key: &str, id: &str, enabled: bool, json: bool, silent: bool) -> Result<()> {
+/// What a suspended or stopped machine keeps, in the dashboard's words.
+fn state_note(state: &str) -> Option<&'static str> {
+    match state {
+        "suspended" => Some("Idle. Your session is kept and resumes in seconds."),
+        "stopped" => Some("Shut down. Your files are kept; programs start fresh."),
+        _ => None,
+    }
+}
+
+/// The spinner text for bringing a machine back: a suspended one resumes, an archived one is
+/// restored (minutes), anything else starts.
+fn start_message(machine: &Machine) -> &'static str {
+    if machine.archived == Some(true) {
+        "Restoring the machine from its archive..."
+    } else if machine.state == "suspended" {
+        "Resuming the machine..."
+    } else {
+        "Starting the machine..."
+    }
+}
+
+async fn autosuspend(
+    api_key: &str,
+    id: &str,
+    enabled: bool,
+    json: bool,
+    silent: bool,
+) -> Result<()> {
     validate_id(id)?;
     let machine = virtual_machines::set_auto_stop(api_key, id, enabled, json).await?;
     if json {
@@ -550,7 +583,7 @@ async fn autostop(api_key: &str, id: &str, enabled: bool, json: bool, silent: bo
         println!(
             "{}",
             if enabled {
-                format!("Machine {id} now stops when idle.")
+                format!("Machine {id} now suspends when idle; its session is kept and resumes in seconds.")
             } else {
                 format!("Machine {id} keeps running when idle. Usage limits still apply; stop it with `stashbase vms stop {id}`.")
             }
@@ -682,7 +715,7 @@ async fn pick_or_create(
     // A machine without a key from this CLI gets one added when you connect.
     let usable: Vec<Machine> = machines
         .into_iter()
-        .filter(|m| matches!(m.state.as_str(), "running" | "stopped"))
+        .filter(|m| matches!(m.state.as_str(), "running" | "stopped" | "suspended"))
         .collect();
     if usable.is_empty() {
         if !silent {
@@ -751,7 +784,7 @@ async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machi
     bail!("Virtual machine {id} is still starting; try connecting again shortly.")
 }
 
-/// Resumes the machine if it is stopped, then opens an interactive shell, or
+/// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
 /// runs `command` there, through the user's own `ssh`.
 async fn connect(
     api_key: &str,
@@ -786,18 +819,16 @@ async fn connect(
             }
             started?
         }
-        "stopped" | "error" | "creating" | "resuming" => {
+        "stopped" | "suspended" | "error" | "creating" | "resuming" => {
             // An archived machine restores its disk first, which takes minutes: say so.
-            let message = if machine.archived == Some(true) {
-                "Restoring the machine from its archive..."
-            } else if machine.state == "creating" {
+            let message = if machine.state == "creating" {
                 "Creating the machine..."
             } else {
-                "Starting the machine..."
+                start_message(&machine)
             };
             let mut spinner = (!silent && !json).then(|| new_spinner(message, Streams::Stderr));
             let started = async {
-                if matches!(machine.state.as_str(), "stopped" | "error") {
+                if matches!(machine.state.as_str(), "stopped" | "suspended" | "error") {
                     virtual_machines::resume(api_key, id, json).await?;
                 }
                 wait_until_running(api_key, id, json).await
@@ -924,8 +955,18 @@ async fn connect(
 
 async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     validate_id(id)?;
-    let mut spinner =
-        (!silent && !json).then(|| new_spinner("Starting the machine...", Streams::Stderr));
+    // Listed first only to say the right thing: a suspended machine resumes, a stopped one boots.
+    let current = virtual_machines::list(api_key, json)
+        .await
+        .ok()
+        .and_then(|ms| {
+            ms.into_iter()
+                .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
+        });
+    let message = current
+        .as_ref()
+        .map_or("Starting the machine...", start_message);
+    let mut spinner = (!silent && !json).then(|| new_spinner(message, Streams::Stderr));
     let started = virtual_machines::resume(api_key, id, json).await;
     if let Some(mut spinner) = spinner.take() {
         spinner.clear();
@@ -934,7 +975,11 @@ async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> 
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
-        println!("Virtual machine {id} is starting; it is usually ready within a minute (a few if it was archived).");
+        if current.as_ref().is_some_and(|m| m.state == "suspended") {
+            println!("Virtual machine {id} is resuming; your session continues in a few seconds.");
+        } else {
+            println!("Virtual machine {id} is starting; it is usually ready within a minute (a few if it was archived).");
+        }
         println!("Connect with: stashbase vms connect {id}");
     }
     Ok(())
@@ -947,7 +992,9 @@ async fn stop(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
-        println!("Virtual machine {id} is stopping; its disk and files are kept.");
+        println!(
+            "Virtual machine {id} is shutting down; its files are kept and programs start fresh."
+        );
         println!("Start it again with: stashbase vms start {id}");
     }
     Ok(())
