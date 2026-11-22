@@ -444,17 +444,17 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     }
     fields.push((
         "Auto-suspend",
-        if machine.auto_stop_enabled == Some(false) {
+        if machine.auto_suspend_enabled == Some(false) {
             "off"
         } else {
             "on"
         }
         .to_owned(),
     ));
-    if machine.state == "running" && machine.auto_stop_enabled != Some(false) {
+    if machine.state == "running" && machine.auto_suspend_enabled != Some(false) {
         fields.push((
             "Idle suspend",
-            match &machine.idle_stop_at {
+            match &machine.idle_suspend_at {
                 Some(at) => {
                     let left = minutes_until(at)
                         .map(|m| format!(" (in {})", span(m)))
@@ -576,7 +576,7 @@ async fn autosuspend(
     silent: bool,
 ) -> Result<()> {
     validate_id(id)?;
-    let machine = virtual_machines::set_auto_stop(api_key, id, enabled, json).await?;
+    let machine = virtual_machines::set_auto_suspend(api_key, id, enabled, json).await?;
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {

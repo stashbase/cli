@@ -30,15 +30,15 @@ pub struct Machine {
     pub location: Option<String>,
     #[serde(default)]
     pub running_since: Option<String>,
-    /// When the machine stops if it stays idle; absent while busy or stopped.
+    /// When the machine suspends if it stays idle; absent while busy or not running.
     #[serde(default)]
-    pub idle_stop_at: Option<String>,
+    pub idle_suspend_at: Option<String>,
     /// Until when a suspended machine's session is kept; then it is shut down and archived.
     #[serde(default)]
     pub session_kept_until: Option<String>,
-    /// False when auto-suspend is turned off (absent means on); the API still calls it auto-stop.
+    /// False when auto-suspend is turned off (absent means on).
     #[serde(default)]
-    pub auto_stop_enabled: Option<bool>,
+    pub auto_suspend_enabled: Option<bool>,
     /// The latest reading (about once a minute) while the machine runs.
     #[serde(default)]
     pub metrics: Option<Metrics>,
@@ -263,10 +263,10 @@ pub async fn usage(api_key: &str, json: bool) -> Result<Usage> {
     send(http_client()?.get(url("/usage")).bearer_auth(api_key), json).await
 }
 
-pub async fn set_auto_stop(api_key: &str, id: &str, enabled: bool, json: bool) -> Result<Machine> {
+pub async fn set_auto_suspend(api_key: &str, id: &str, enabled: bool, json: bool) -> Result<Machine> {
     send(
         http_client()?
-            .put(url(&format!("/{id}/autostop")))
+            .put(url(&format!("/{id}/autosuspend")))
             .bearer_auth(api_key)
             .json(&serde_json::json!({ "enabled": enabled })),
         json,
