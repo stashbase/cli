@@ -935,7 +935,11 @@ async fn connect(
         // Short attempts: a first connection dropped while the machine settles costs seconds, not
         // ten; the attempts still add up to a long enough wait.
         .args(["-o", "ConnectTimeout=3"])
-        .args(["-o", "ConnectionAttempts=30"]);
+        .args(["-o", "ConnectionAttempts=30"])
+        // A machine that suspends freezes the connection without closing it; notice within about
+        // 45 seconds instead of hanging.
+        .args(["-o", "ServerAliveInterval=15"])
+        .args(["-o", "ServerAliveCountMax=3"]);
     if pinned {
         ssh.arg("-o")
             .arg(format!("CertificateFile={}", ssh_option_path(&cert_path)?))
@@ -977,14 +981,57 @@ async fn connect(
             "sh -c 'infocmp \"$TERM\" >/dev/null 2>&1 || TERM=xterm-256color; export TERM; {shell}'"
         ));
     }
-    let status = ssh
-        .status()
-        .context("`ssh` was not found on this machine.")?;
+    // Ctrl+C belongs to ssh (and the machine); this process ignores it while ssh runs, so it is
+    // still here afterwards to restore the terminal. ssh itself gets the default handling back.
+    #[cfg(unix)]
+    let previous_sigint = unsafe {
+        use std::os::unix::process::CommandExt;
+        ssh.pre_exec(|| {
+            libc::signal(libc::SIGINT, libc::SIG_DFL);
+            Ok(())
+        });
+        libc::signal(libc::SIGINT, libc::SIG_IGN)
+    };
+    let status = ssh.status();
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGINT, previous_sigint);
+    }
+    let status = status.context("`ssh` was not found on this machine.")?;
+    restore_terminal();
+    // 255 is ssh's own failure: here usually a connection that died because the machine was
+    // suspended (idle) or stopped. Say what to do instead of leaving a bare error.
+    if status.code() == Some(255) && !silent && !json {
+        eprintln!(
+            "The connection to the machine was lost (it may have been suspended while idle). \
+             Run `stashbase vms connect {id}` to resume it and reconnect."
+        );
+    }
     if !status.success() {
         // The shell's own exit code is passed through, reported the way every other command does.
         crate::exit::Exit::code(status.code().unwrap_or(1)).terminate();
     }
     Ok(())
+}
+
+/// Puts the local terminal back to normal after ssh ends. Programs on the machine (tmux, agents)
+/// switch modes on (hidden cursor, mouse reporting, the alternate screen, focus reports) and only
+/// switch them off when they exit cleanly; a dropped connection leaves them on.
+fn restore_terminal() {
+    use std::io::{IsTerminal, Write};
+    let mut out = std::io::stdout();
+    if !out.is_terminal() {
+        return;
+    }
+    let _ = out.write_all(
+        b"\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m",
+    );
+    let _ = out.flush();
+    #[cfg(unix)]
+    let _ = Command::new("stty")
+        .arg("sane")
+        .stdin(std::process::Stdio::inherit())
+        .status();
 }
 
 async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
