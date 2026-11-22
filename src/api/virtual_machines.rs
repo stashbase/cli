@@ -263,7 +263,12 @@ pub async fn usage(api_key: &str, json: bool) -> Result<Usage> {
     send(http_client()?.get(url("/usage")).bearer_auth(api_key), json).await
 }
 
-pub async fn set_auto_suspend(api_key: &str, id: &str, enabled: bool, json: bool) -> Result<Machine> {
+pub async fn set_auto_suspend(
+    api_key: &str,
+    id: &str,
+    enabled: bool,
+    json: bool,
+) -> Result<Machine> {
     send(
         http_client()?
             .put(url(&format!("/{id}/autosuspend")))

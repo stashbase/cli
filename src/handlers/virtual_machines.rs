@@ -784,6 +784,24 @@ async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machi
     bail!("Virtual machine {id} is still starting; try connecting again shortly.")
 }
 
+/// Follows a machine that is suspending or stopping until it has (a suspend takes about 95 s).
+async fn wait_until_settled(api_key: &str, id: &str, json: bool) -> Result<Machine> {
+    for _ in 0..100 {
+        if let Ok(machines) = virtual_machines::list(api_key, json).await {
+            match machines
+                .into_iter()
+                .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
+            {
+                Some(m) if matches!(m.state.as_str(), "suspending" | "stopping") => {}
+                Some(m) => return Ok(m),
+                None => return Err(virtual_machines::not_found(json)),
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    }
+    bail!("Virtual machine {id} is still stopping; try connecting again shortly.")
+}
+
 /// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
 /// runs `command` there, through the user's own `ssh`.
 async fn connect(
@@ -801,6 +819,22 @@ async fn connect(
         .into_iter()
         .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
         .ok_or_else(|| virtual_machines::not_found(json))?;
+    // A machine still suspending or shutting down is waited for, then started like any other.
+    let machine = if matches!(machine.state.as_str(), "suspending" | "stopping") {
+        let message = if machine.state == "suspending" {
+            "Waiting for the machine to finish suspending..."
+        } else {
+            "Waiting for the machine to finish stopping..."
+        };
+        let mut spinner = (!silent && !json).then(|| new_spinner(message, Streams::Stderr));
+        let settled = wait_until_settled(api_key, id, json).await;
+        if let Some(mut spinner) = spinner.take() {
+            spinner.clear();
+        }
+        settled?
+    } else {
+        machine
+    };
     // Starting returns at once; the machine is followed until it runs. One already being created
     // or started is waited for the same way.
     let machine = match machine.state.as_str() {
