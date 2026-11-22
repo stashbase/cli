@@ -1003,8 +1003,8 @@ async fn connect(
     // suspended (idle) or stopped. Say what to do instead of leaving a bare error.
     if status.code() == Some(255) && !silent && !json {
         eprintln!(
-            "The connection to the machine was lost (it may have been suspended while idle). \
-             Run `stashbase vms connect {id}` to resume it and reconnect."
+            "The connection to the machine was lost: it was suspended while idle, stopped, or the \
+             network dropped. Run `stashbase vms connect {id}` to start it again and reconnect."
         );
     }
     if !status.success() {
