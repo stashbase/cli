@@ -517,11 +517,3 @@ For stronger filesystem and network isolation than the native backend provides, 
 ## Full Reference
 
 This is a lightweight local guide. For comprehensive documentation on advanced features, policy regression tests, compatibility matrices, and operational details, see https://docs.stashbase.dev/agents.
-
-### Virtual machine IDs
-
-`stashbase vms` commands accept the full `vm_<22-character short UUID>` shown by
-`stashbase vms list`, including `connect`, `stop` and `delete`.
-Legacy UUIDs remain accepted. Use the full ID, not a truncated prefix.
-Local SSH keys remain indexed by the decoded UUID, so existing keys are reused
-when the API switches its displayed IDs to the vm_ format.
