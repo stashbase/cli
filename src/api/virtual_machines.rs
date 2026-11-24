@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -115,6 +117,7 @@ struct PlainError {
 fn http_client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
+        .timeout(Duration::from_secs(client::get_request_timeout_secs()))
         .build()?)
 }
 

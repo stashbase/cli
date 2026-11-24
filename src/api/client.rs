@@ -109,7 +109,7 @@ pub fn build_client_no_retry(api_key: String) -> ClientWithMiddleware {
     .build()
 }
 
-fn get_request_timeout_secs() -> u64 {
+pub(super) fn get_request_timeout_secs() -> u64 {
     REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30)
 }
 

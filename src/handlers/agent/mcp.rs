@@ -2409,7 +2409,11 @@ rules = [
             },
             true,
         );
-        let value: serde_json::Value = serde_json::from_str(&error.to_string()).unwrap();
+        // The formatter may add ANSI colors when the tests run in a terminal.
+        let ansi_color = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+        let rendered = error.to_string();
+        let json = ansi_color.replace_all(&rendered, "");
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["error"]["type"], "input_validation_error");
         assert_eq!(
             value["error"]["message"],

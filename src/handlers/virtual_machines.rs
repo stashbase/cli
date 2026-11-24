@@ -6,11 +6,13 @@ use std::{
     io::IsTerminal,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 
 use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
 use tabled::Tabled;
+use tokio::time::{sleep, timeout};
 
 use crate::{
     api::virtual_machines::{self, Machine},
@@ -103,10 +105,8 @@ fn keys_dir() -> Result<PathBuf> {
     Ok(dirs.data_local_dir().join("cloud"))
 }
 
-fn key_path(id: &str) -> Result<PathBuf> {
-    Ok(keys_dir()?
-        .join(machine_uuid(id)?.to_string())
-        .join("id_ed25519"))
+fn machine_key_dir(id: &str) -> Result<PathBuf> {
+    Ok(keys_dir()?.join(machine_uuid(id)?.to_string()))
 }
 
 /// Match the backend's short-uuid default (Flickr base58), keeping local keys under
@@ -174,27 +174,29 @@ async fn certificate_when_ready(
     silent: bool,
 ) -> Result<virtual_machines::Certificate> {
     let mut spinner = None;
-    let mut attempt = 0;
-    loop {
-        match virtual_machines::certificate(api_key, id, public_key, json).await {
-            Err(error) if attempt < 24 && format!("{error:#}").contains("host_key_unavailable") => {
-                if spinner.is_none() && !silent && !json {
-                    spinner = Some(new_spinner(
-                        "Waiting for the machine to finish booting...",
-                        Streams::Stderr,
-                    ));
+    let result = timeout(Duration::from_secs(120), async {
+        loop {
+            match virtual_machines::certificate(api_key, id, public_key, json).await {
+                Err(error) if format!("{error:#}").contains("host_key_unavailable") => {
+                    if spinner.is_none() && !silent && !json {
+                        spinner = Some(new_spinner(
+                            "Waiting for the machine to finish booting...",
+                            Streams::Stderr,
+                        ));
+                    }
+                    sleep(Duration::from_secs(5)).await;
                 }
-                attempt += 1;
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-            other => {
-                if let Some(mut spinner) = spinner.take() {
-                    spinner.clear();
-                }
-                return other;
+                result => return result,
             }
         }
+    })
+    .await;
+    if let Some(mut spinner) = spinner {
+        spinner.clear();
     }
+    result.with_context(|| {
+        format!("Timed out waiting for an SSH certificate for virtual machine {id}. Try connecting again shortly.")
+    })?
 }
 
 /// The `<type> <base64>` public key of the key pair in `dir`.
@@ -224,62 +226,52 @@ async fn create_machine(
     let public_key = generate_key(&pending)?;
     let mut spinner =
         (!silent && !json).then(|| new_spinner("Creating the virtual machine...", Streams::Stderr));
-    let known: Vec<String> = virtual_machines::list(api_key, json)
+    let mut result = virtual_machines::create(api_key, &public_key, location, name, json)
         .await
-        .map(|machines| machines.into_iter().map(|m| m.id).collect())
-        .unwrap_or_default();
-    let mut result = virtual_machines::create(api_key, &public_key, location, name, json).await;
-    // Only a dropped connection (no answer from the server) may mean the machine is still being
-    // created: look for it then. A refusal (limit reached, no allowance, ...) is shown right away.
-    let dropped = matches!(&result, Err(e) if e.downcast_ref::<reqwest::Error>().is_some());
-    if dropped {
-        // The server may drop the request while the VM is still being created:
-        // look for the new machine instead of failing.
-        for _ in 0..36 {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            let Ok(machines) = virtual_machines::list(api_key, json).await else {
-                continue;
-            };
-            if let Some(found) = machines.into_iter().find(|m| !known.contains(&m.id)) {
-                match found.state.as_str() {
-                    "running" => result = Ok(found),
-                    "creating" => continue,
-                    _ => {}
-                }
-                break;
+        .map_err(|error| {
+            if error.downcast_ref::<reqwest::Error>().is_some() {
+                error.context(
+                    "Could not confirm whether the virtual machine was created. Check `stashbase vms list` before retrying.",
+                )
+            } else {
+                error
             }
-        }
-    }
+        });
     // The key belongs to the machine as soon as it is recorded.
     if let Ok(machine) = &result {
-        fs::rename(&pending, keys.join(machine_uuid(&machine.id)?.to_string()))?;
+        fs::rename(&pending, machine_key_dir(&machine.id)?)?;
     }
     if wait {
         if let Ok(created) = &result {
-            if created.state == "creating" {
+            if created.state == "creating"
+                || (created.state == "running" && created.ready == Some(false))
+            {
                 let id = created.id.clone();
-                // Up to about four minutes; creating usually takes one.
-                for _ in 0..80 {
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    let Ok(machines) = virtual_machines::list(api_key, json).await else {
-                        continue;
-                    };
-                    match machines.into_iter().find(|m| m.id == id) {
-                        Some(m) if m.state == "creating" => continue,
-                        Some(m) if m.state == "running" => {
-                            result = Ok(m);
-                            break;
-                        }
-                        Some(m) => {
-                            result = Err(anyhow::anyhow!(
+                result = timeout(Duration::from_secs(240), async {
+                    loop {
+                        sleep(Duration::from_secs(3)).await;
+                        let Ok(machines) = virtual_machines::list(api_key, json).await else {
+                            continue;
+                        };
+                        match machines.into_iter().find(|m| m.id == id) {
+                            Some(m) if m.state == "creating" => continue,
+                            Some(m) if m.state == "running" && m.ready != Some(false) => {
+                                return Ok(m);
+                            }
+                            Some(m) if m.state == "running" => continue,
+                            Some(m) => bail!(
                                 "The machine could not be created ({}). Delete it with `stashbase vms delete {id}` and try again.",
                                 m.error.unwrap_or(m.state)
-                            ));
-                            break;
+                            ),
+                            None => continue,
                         }
-                        None => continue,
                     }
-                }
+                })
+                .await
+                .with_context(|| {
+                    format!("Timed out waiting for virtual machine {id} to become ready. Check its status with `stashbase vms info {id}`.")
+                })
+                .and_then(|result| result);
             }
         }
     }
@@ -762,44 +754,52 @@ async fn run(
 /// Follows a machine that is being created or started until it runs (up to about five minutes:
 /// restoring an archived machine takes a few).
 async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machine> {
-    for _ in 0..100 {
-        if let Ok(machines) = virtual_machines::list(api_key, json).await {
-            match machines
-                .into_iter()
-                .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
-            {
-                // Ready means SSH answers; older backends without the flag count as ready.
-                Some(m) if m.state == "running" && m.ready != Some(false) => return Ok(m),
-                Some(m) if m.state == "running" => {}
-                Some(m) if matches!(m.state.as_str(), "creating" | "resuming") => {}
-                Some(m) => bail!(
-                    "Virtual machine {id} did not start ({}). Try `stashbase vms start {id}` again.",
-                    m.error.unwrap_or(m.state)
-                ),
-                None => return Err(virtual_machines::not_found(json)),
+    timeout(Duration::from_secs(300), async {
+        loop {
+            if let Ok(machines) = virtual_machines::list(api_key, json).await {
+                match machines
+                    .into_iter()
+                    .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
+                {
+                    // Ready means SSH answers; older backends without the flag count as ready.
+                    Some(m) if m.state == "running" && m.ready != Some(false) => return Ok(m),
+                    Some(m) if m.state == "running" => {}
+                    Some(m) if matches!(m.state.as_str(), "creating" | "resuming") => {}
+                    Some(m) => bail!(
+                        "Virtual machine {id} did not start ({}). Try `stashbase vms start {id}` again.",
+                        m.error.unwrap_or(m.state)
+                    ),
+                    None => return Err(virtual_machines::not_found(json)),
+                }
             }
+            sleep(Duration::from_secs(3)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    }
-    bail!("Virtual machine {id} is still starting; try connecting again shortly.")
+    })
+    .await
+    .with_context(|| format!("Virtual machine {id} is still starting; try connecting again shortly."))?
 }
 
 /// Follows a machine that is suspending or stopping until it has (a suspend takes about 95 s).
 async fn wait_until_settled(api_key: &str, id: &str, json: bool) -> Result<Machine> {
-    for _ in 0..100 {
-        if let Ok(machines) = virtual_machines::list(api_key, json).await {
-            match machines
-                .into_iter()
-                .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
-            {
-                Some(m) if matches!(m.state.as_str(), "suspending" | "stopping") => {}
-                Some(m) => return Ok(m),
-                None => return Err(virtual_machines::not_found(json)),
+    timeout(Duration::from_secs(300), async {
+        loop {
+            if let Ok(machines) = virtual_machines::list(api_key, json).await {
+                match machines
+                    .into_iter()
+                    .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
+                {
+                    Some(m) if matches!(m.state.as_str(), "suspending" | "stopping") => {}
+                    Some(m) => return Ok(m),
+                    None => return Err(virtual_machines::not_found(json)),
+                }
             }
+            sleep(Duration::from_secs(3)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    }
-    bail!("Virtual machine {id} is still stopping; try connecting again shortly.")
+    })
+    .await
+    .with_context(|| {
+        format!("Virtual machine {id} is still stopping; try connecting again shortly.")
+    })?
 }
 
 /// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
@@ -813,7 +813,8 @@ async fn connect(
     silent: bool,
 ) -> Result<()> {
     validate_id(id)?;
-    let key = key_path(id)?;
+    let dir = machine_key_dir(id)?;
+    let key = dir.join("id_ed25519");
     let machines = virtual_machines::list(api_key, json).await?;
     let machine = machines
         .into_iter()
@@ -837,7 +838,7 @@ async fn connect(
     };
     // Starting returns at once; the machine is followed until it runs. One already being created
     // or started is waited for the same way.
-    let machine = match machine.state.as_str() {
+    match machine.state.as_str() {
         "running" if machine.ready != Some(false) => machine,
         // Running but SSH does not answer yet (still booting): wait for it like a start.
         "running" => {
@@ -875,15 +876,10 @@ async fn connect(
         }
         other => return Err(virtual_machines::busy(id, other, json)),
     };
-    let ip = machine.ip.context("The machine has no address yet.")?;
     // Every connection uses a short-lived certificate for this computer's key, issued by the
     // backend for this machine only, and checks the machine's host key against the one it
     // reported at boot. A machine launched elsewhere (for example from the dashboard without a
     // key) gets a key made here first.
-    let dir = key
-        .parent()
-        .context("Missing machine key directory.")?
-        .to_path_buf();
     let had_key = key.is_file();
     if !had_key {
         generate_key(&dir)?;
@@ -891,42 +887,23 @@ async fn connect(
     let public_key = read_public_key(&dir)?;
     let cert_path = dir.join("id_ed25519-cert.pub");
     let known_hosts = dir.join("known_hosts");
-    let mut target = ip.clone();
-    let pinned = match certificate_when_ready(api_key, id, &public_key, json, silent).await {
-        Ok(issued) => {
-            fs::write(&cert_path, format!("{}\n", issued.certificate.trim()))?;
-            fs::write(
-                &known_hosts,
-                format!("{} {}\n", issued.ip, issued.host_key.trim()),
-            )?;
-            target = issued.ip;
-            true
-        }
+    let issued = match certificate_when_ready(api_key, id, &public_key, json, silent).await {
+        Ok(issued) => issued,
         Err(error) => {
-            let message = format!("{error:#}");
-            if message.contains("host_key_unavailable") {
-                if !had_key {
-                    let _ = fs::remove_dir_all(&dir);
-                }
+            if !had_key {
+                let _ = fs::remove_dir_all(&dir);
+            }
+            if format!("{error:#}").contains("host_key_unavailable") {
                 bail!("The machine has not reported its host key yet. It is probably still starting; try again in a minute.");
             }
-            // A machine created before certificate access existed can only be reached with its
-            // own key, and its host key cannot be verified.
-            if had_key && message.contains("terminal_unavailable") {
-                if !silent && !json {
-                    eprintln!(
-                        "Warning: this machine predates certificate access; its host key is not verified."
-                    );
-                }
-                false
-            } else {
-                if !had_key {
-                    let _ = fs::remove_dir_all(&dir);
-                }
-                return Err(error);
-            }
+            return Err(error);
         }
     };
+    fs::write(&cert_path, format!("{}\n", issued.certificate.trim()))?;
+    fs::write(
+        &known_hosts,
+        format!("{} {}\n", issued.ip, issued.host_key.trim()),
+    )?;
     let mut ssh = Command::new("ssh");
     ssh.arg("-i")
         .arg(&key)
@@ -939,26 +916,23 @@ async fn connect(
         // A machine that suspends freezes the connection without closing it; notice within about
         // 45 seconds instead of hanging.
         .args(["-o", "ServerAliveInterval=15"])
-        .args(["-o", "ServerAliveCountMax=3"]);
-    if pinned {
-        ssh.arg("-o")
-            .arg(format!("CertificateFile={}", ssh_option_path(&cert_path)?))
-            .args(["-o", "StrictHostKeyChecking=yes"])
-            .args(["-o", "GlobalKnownHostsFile=/dev/null"])
-            .args(["-o", "UpdateHostKeys=no"])
-            .arg("-o")
-            .arg(format!(
-                "UserKnownHostsFile={}",
-                ssh_option_path(&known_hosts)?
-            ));
-    } else {
-        ssh.args(["-o", "StrictHostKeyChecking=no"])
-            .args(["-o", "UserKnownHostsFile=/dev/null"]);
-    }
+        .args(["-o", "ServerAliveCountMax=3"])
+        .arg("-o")
+        .arg(format!("CertificateFile={}", ssh_option_path(&cert_path)?))
+        // Every invocation must negotiate a fresh connection and verify the host key.
+        .args(["-o", "ControlPath=none"])
+        .args(["-o", "StrictHostKeyChecking=yes"])
+        .args(["-o", "GlobalKnownHostsFile=/dev/null"])
+        .args(["-o", "UpdateHostKeys=no"])
+        .arg("-o")
+        .arg(format!(
+            "UserKnownHostsFile={}",
+            ssh_option_path(&known_hosts)?
+        ));
     if !command.is_empty() && std::io::stdin().is_terminal() {
         ssh.arg("-t");
     }
-    ssh.arg(format!("agent@{target}"));
+    ssh.arg(format!("agent@{}", issued.ip));
     if !command.is_empty() {
         // ssh passes one string to the remote shell, so quote each argument.
         let remote = command
@@ -1097,12 +1071,35 @@ async fn delete(api_key: &str, id: &str, yes: bool, json: bool, silent: bool) ->
             bail!("Cancelled.");
         }
     }
+    let dir = machine_key_dir(id)?;
     let machine = virtual_machines::destroy(api_key, id, json).await?;
-    let _ = fs::remove_dir_all(keys_dir()?.join(id));
+    if let Err(error) = fs::remove_dir_all(&dir) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(error).with_context(|| {
+                format!(
+                    "VM deletion was accepted, but could not remove SSH credentials at {}",
+                    dir.display()
+                )
+            });
+        }
+    }
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
         println!("Virtual machine {id} is being deleted with its disk; it disappears from `stashbase vms list` when done.");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::machine_key_dir;
+
+    #[test]
+    fn public_and_full_machine_ids_share_the_ssh_directory() {
+        let public_dir = machine_key_dir("vm_1111111111111111111112").unwrap();
+        let full_dir = machine_key_dir("00000000-0000-0000-0000-000000000001").unwrap();
+
+        assert_eq!(public_dir, full_dir);
+    }
 }
