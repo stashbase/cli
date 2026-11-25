@@ -16,7 +16,9 @@ use tokio::time::{sleep, timeout};
 
 use crate::{
     api::virtual_machines::{self, Machine},
-    cmd::virtual_machines::{VirtualMachineCommand, VirtualMachineSubcommand},
+    cmd::virtual_machines::{
+        PortForward, VirtualMachineCommand, VirtualMachineConnect, VirtualMachineSubcommand,
+    },
     handlers::run::entry::shell_quote,
     utils::{
         interaction::{confirm_text, input_optional, select},
@@ -69,18 +71,7 @@ async fn run_command(
             autosuspend(&api_key, &args.id, args.mode == "on", json, silent).await
         }
         VirtualMachineSubcommand::Usage(_) => usage(&api_key, json, silent).await,
-        VirtualMachineSubcommand::Connect(args) => {
-            run(
-                &api_key,
-                args.id,
-                args.command,
-                !args.no_tmux,
-                args.location.as_deref(),
-                json,
-                silent,
-            )
-            .await
-        }
+        VirtualMachineSubcommand::Connect(args) => run(&api_key, args, json, silent).await,
         VirtualMachineSubcommand::Start(args) => start(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Delete(args) => {
@@ -735,20 +726,21 @@ async fn pick_or_create(
     }
 }
 
-async fn run(
-    api_key: &str,
-    id: Option<String>,
-    command: Vec<String>,
-    use_tmux: bool,
-    location: Option<&str>,
-    json: bool,
-    silent: bool,
-) -> Result<()> {
-    let id = match id {
+async fn run(api_key: &str, args: VirtualMachineConnect, json: bool, silent: bool) -> Result<()> {
+    let id = match args.id {
         Some(id) => id,
-        None => pick_or_create(api_key, location, json, silent).await?,
+        None => pick_or_create(api_key, args.location.as_deref(), json, silent).await?,
     };
-    connect(api_key, &id, &command, use_tmux, json, silent).await
+    connect(
+        api_key,
+        &id,
+        &args.command,
+        &args.forward,
+        !args.no_tmux,
+        json,
+        silent,
+    )
+    .await
 }
 
 /// Follows a machine that is being created or started until it runs (up to about five minutes:
@@ -808,6 +800,7 @@ async fn connect(
     api_key: &str,
     id: &str,
     command: &[String],
+    forwards: &[PortForward],
     use_tmux: bool,
     json: bool,
     silent: bool,
@@ -929,6 +922,17 @@ async fn connect(
             "UserKnownHostsFile={}",
             ssh_option_path(&known_hosts)?
         ));
+    // Forwards listen on loopback only, so nobody else on this network reaches the machine's
+    // ports; a local port already in use fails the connection instead of only warning.
+    if !forwards.is_empty() {
+        ssh.args(["-o", "ExitOnForwardFailure=yes"]);
+    }
+    for forward in forwards {
+        ssh.arg("-L").arg(format!(
+            "127.0.0.1:{}:localhost:{}",
+            forward.local, forward.remote
+        ));
+    }
     if !command.is_empty() && std::io::stdin().is_terminal() {
         ssh.arg("-t");
     }

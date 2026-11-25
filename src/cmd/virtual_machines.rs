@@ -85,7 +85,7 @@ pub struct VirtualMachineUsage {}
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "vms connect [ID] [--location us|eu|asia] [--no-tmux] [-- <COMMAND>...]"
+    override_usage = "vms connect [ID] [--location us|eu|asia] [--forward <[LOCAL:]PORT>]... [--no-tmux] [-- <COMMAND>...]"
 )]
 pub struct VirtualMachineConnect {
     /// Machine ID (vm_… or legacy UUID) to use; omit to pick an existing one or create a new one
@@ -96,6 +96,12 @@ pub struct VirtualMachineConnect {
     /// omitted
     #[arg(long, value_parser = ["us", "eu", "asia"])]
     pub location: Option<String>,
+
+    /// Forward a port on the machine to this computer while connected, e.g. `3000` (localhost:3000
+    /// opens the machine's port 3000) or `8080:3000` (localhost:8080 opens its port 3000).
+    /// Only this computer can use it. Repeat for more ports.
+    #[arg(long, value_name = "[LOCAL:]PORT", value_parser = parse_forward)]
+    pub forward: Vec<PortForward>,
 
     /// Open a plain login shell instead of the machine's shared tmux session
     #[arg(long)]
@@ -136,4 +142,57 @@ pub struct VirtualMachineDelete {
     /// Delete without asking for confirmation (required in scripts)
     #[arg(long = "yes", short = 'y')]
     pub yes: bool,
+}
+
+/// A port on the machine (`remote`) reachable on this computer's `local` port while connected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortForward {
+    pub local: u16,
+    pub remote: u16,
+}
+
+fn parse_forward(value: &str) -> Result<PortForward, String> {
+    let port = |p: &str| match p.parse::<u16>() {
+        Ok(port) if port > 0 => Ok(port),
+        _ => Err(format!("`{p}` is not a port (1-65535)")),
+    };
+    match value.split_once(':') {
+        Some((local, remote)) => Ok(PortForward {
+            local: port(local)?,
+            remote: port(remote)?,
+        }),
+        None => {
+            let port = port(value)?;
+            Ok(PortForward {
+                local: port,
+                remote: port,
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_forwards() {
+        assert_eq!(
+            parse_forward("3000"),
+            Ok(PortForward {
+                local: 3000,
+                remote: 3000
+            })
+        );
+        assert_eq!(
+            parse_forward("8080:3000"),
+            Ok(PortForward {
+                local: 8080,
+                remote: 3000
+            })
+        );
+        for bad in ["", "0", "70000", "abc", "1:", ":1", "1:2:3"] {
+            assert!(parse_forward(bad).is_err(), "{bad}");
+        }
+    }
 }
