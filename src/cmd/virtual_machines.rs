@@ -145,7 +145,8 @@ pub struct VirtualMachineConnect {
     #[arg(long, conflicts_with = "no_tmux")]
     pub tmux: bool,
 
-    /// Command to run on the machine instead of an interactive shell
+    /// Command to run on the machine instead of an interactive shell. A single argument is run by
+    /// the machine's shell like with ssh (`-- 'echo $HOME'`); several are passed word by word
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
 }

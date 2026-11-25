@@ -1050,12 +1050,16 @@ async fn connect(
     }
     ssh.arg(format!("agent@{}", target.ip));
     if !command.is_empty() {
-        // ssh passes one string to the remote shell, so quote each argument.
-        let remote = command
-            .iter()
-            .map(|arg| shell_quote(arg))
-            .collect::<Vec<_>>()
-            .join(" ");
+        // One argument is a command line for the machine's shell, as with plain ssh
+        // (`-- 'echo $HOME'`). Several are quoted one by one, so each stays a single word.
+        let remote = match command {
+            [line] => line.clone(),
+            _ => command
+                .iter()
+                .map(|arg| shell_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" "),
+        };
         ssh.arg(remote);
     } else if std::io::stdin().is_terminal() {
         // An interactive shell attaches to the machine's shared tmux session by default, the
