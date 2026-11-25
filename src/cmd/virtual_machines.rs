@@ -23,6 +23,8 @@ pub enum VirtualMachineSubcommand {
     Usage(VirtualMachineUsage),
     /// Connect to a virtual machine: pick an existing one or create a new one
     Connect(VirtualMachineConnect),
+    /// Copy files between this computer and a machine (`ID:path` or `:path` names the machine side)
+    Cp(VirtualMachineCp),
     /// Start a stopped virtual machine without connecting to it
     #[command(visible_alias = "resume")]
     Start(VirtualMachineStart),
@@ -155,6 +157,25 @@ pub struct VirtualMachineDelete {
     /// Delete without asking for confirmation (required in scripts)
     #[arg(long = "yes", short = 'y')]
     pub yes: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    override_usage = "vms cp [-r] <SOURCE> <DESTINATION>",
+    after_help = "Examples:\n  stashbase vms cp ./notes.md :notes.md\n  stashbase vms cp -r :project/dist ./dist\n  stashbase vms cp ./notes.md vm_abc123:notes.md\n\n`:path` uses your only machine, or asks which one when you have several. Paths on the machine are relative to its home directory (/home/agent) unless they start with /."
+)]
+pub struct VirtualMachineCp {
+    /// What to copy: a local path, or `ID:path` / `:path` on a machine
+    #[arg(value_name = "SOURCE")]
+    pub source: String,
+
+    /// Where to copy it: a local path, or `ID:path` / `:path` on a machine. Exactly one side is a machine.
+    #[arg(value_name = "DESTINATION")]
+    pub destination: String,
+
+    /// Copy directories and their contents
+    #[arg(short = 'r', long)]
+    pub recursive: bool,
 }
 
 /// A port on the machine (`remote`) reachable on this computer's `local` port while connected.

@@ -74,6 +74,17 @@ async fn run_command(
         VirtualMachineSubcommand::Connect(args) => run(&api_key, args, json, silent).await,
         VirtualMachineSubcommand::Start(args) => start(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Stop(args) => stop(&api_key, &args.id, json, silent).await,
+        VirtualMachineSubcommand::Cp(args) => {
+            cp(
+                &api_key,
+                &args.source,
+                &args.destination,
+                args.recursive,
+                json,
+                silent,
+            )
+            .await
+        }
         VirtualMachineSubcommand::Delete(args) => {
             delete(&api_key, &args.id, args.yes, json, silent).await
         }
@@ -795,19 +806,44 @@ async fn wait_until_settled(api_key: &str, id: &str, json: bool) -> Result<Machi
     })?
 }
 
-/// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
-/// runs `command` there, through the user's own `ssh`.
-#[allow(clippy::too_many_arguments)]
-async fn connect(
-    api_key: &str,
-    id: &str,
-    command: &[String],
-    forwards: &[PortForward],
-    keep_awake: Option<Duration>,
-    use_tmux: bool,
-    json: bool,
-    silent: bool,
-) -> Result<()> {
+/// What `ssh` and `scp` need to reach a machine as `agent`: its address, this computer's key, a
+/// fresh certificate for it, and its pinned host key.
+struct SshTarget {
+    ip: String,
+    key: PathBuf,
+    cert_path: PathBuf,
+    known_hosts: PathBuf,
+}
+
+impl SshTarget {
+    /// Options shared by `ssh` and `scp`.
+    fn options(&self) -> Result<Vec<std::ffi::OsString>> {
+        let mut options: Vec<std::ffi::OsString> = vec!["-i".into(), self.key.clone().into()];
+        for option in [
+            "IdentitiesOnly=yes".to_string(),
+            "LogLevel=ERROR".to_string(),
+            // Short attempts: a first connection dropped while the machine settles costs
+            // seconds, not ten; the attempts still add up to a long enough wait.
+            "ConnectTimeout=3".to_string(),
+            "ConnectionAttempts=30".to_string(),
+            format!("CertificateFile={}", ssh_option_path(&self.cert_path)?),
+            // Every invocation must negotiate a fresh connection and verify the host key.
+            "ControlPath=none".to_string(),
+            "StrictHostKeyChecking=yes".to_string(),
+            "GlobalKnownHostsFile=/dev/null".to_string(),
+            "UpdateHostKeys=no".to_string(),
+            format!("UserKnownHostsFile={}", ssh_option_path(&self.known_hosts)?),
+        ] {
+            options.push("-o".into());
+            options.push(option.into());
+        }
+        Ok(options)
+    }
+}
+
+/// Starts the machine if it is stopped (resumes it if suspended), waits until it accepts SSH, and
+/// gets a short-lived certificate for this computer's key.
+async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Result<SshTarget> {
     validate_id(id)?;
     let dir = machine_key_dir(id)?;
     let key = dir.join("id_ed25519");
@@ -900,31 +936,34 @@ async fn connect(
         &known_hosts,
         format!("{} {}\n", issued.ip, issued.host_key.trim()),
     )?;
+    Ok(SshTarget {
+        ip: issued.ip,
+        key,
+        cert_path,
+        known_hosts,
+    })
+}
+
+/// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
+/// runs `command` there, through the user's own `ssh`.
+#[allow(clippy::too_many_arguments)]
+async fn connect(
+    api_key: &str,
+    id: &str,
+    command: &[String],
+    forwards: &[PortForward],
+    keep_awake: Option<Duration>,
+    use_tmux: bool,
+    json: bool,
+    silent: bool,
+) -> Result<()> {
+    let target = prepare_ssh(api_key, id, json, silent).await?;
     let mut ssh = Command::new("ssh");
-    ssh.arg("-i")
-        .arg(&key)
-        .args(["-o", "IdentitiesOnly=yes"])
-        .args(["-o", "LogLevel=ERROR"])
-        // Short attempts: a first connection dropped while the machine settles costs seconds, not
-        // ten; the attempts still add up to a long enough wait.
-        .args(["-o", "ConnectTimeout=3"])
-        .args(["-o", "ConnectionAttempts=30"])
+    ssh.args(target.options()?)
         // A machine that suspends freezes the connection without closing it; notice within about
         // 45 seconds instead of hanging.
         .args(["-o", "ServerAliveInterval=15"])
-        .args(["-o", "ServerAliveCountMax=3"])
-        .arg("-o")
-        .arg(format!("CertificateFile={}", ssh_option_path(&cert_path)?))
-        // Every invocation must negotiate a fresh connection and verify the host key.
-        .args(["-o", "ControlPath=none"])
-        .args(["-o", "StrictHostKeyChecking=yes"])
-        .args(["-o", "GlobalKnownHostsFile=/dev/null"])
-        .args(["-o", "UpdateHostKeys=no"])
-        .arg("-o")
-        .arg(format!(
-            "UserKnownHostsFile={}",
-            ssh_option_path(&known_hosts)?
-        ));
+        .args(["-o", "ServerAliveCountMax=3"]);
     // Forwards listen on loopback only, so nobody else on this network reaches the machine's
     // ports; a local port already in use fails the connection instead of only warning.
     if !forwards.is_empty() {
@@ -939,7 +978,7 @@ async fn connect(
     if !command.is_empty() && std::io::stdin().is_terminal() {
         ssh.arg("-t");
     }
-    ssh.arg(format!("agent@{}", issued.ip));
+    ssh.arg(format!("agent@{}", target.ip));
     if !command.is_empty() {
         // ssh passes one string to the remote shell, so quote each argument.
         let remote = command
@@ -1040,6 +1079,101 @@ async fn connect(
     }
     if !status.success() {
         // The shell's own exit code is passed through, reported the way every other command does.
+        crate::exit::Exit::code(status.code().unwrap_or(1)).terminate();
+    }
+    Ok(())
+}
+
+/// `vm_abc:path` (or a machine UUID before the colon) names a path on a machine, and `:path` a
+/// path on your only machine (or one you pick). Anything else is local; a Windows drive letter
+/// (`C:\\dir`) is a single character before the colon, so it never looks like a machine.
+fn split_remote(arg: &str) -> Option<(Option<&str>, &str)> {
+    if let Some(path) = arg.strip_prefix(':') {
+        return Some((None, path));
+    }
+    let (id, path) = arg.split_once(':')?;
+    (id.starts_with("vm_") || uuid::Uuid::parse_str(id).is_ok()).then_some((Some(id), path))
+}
+
+/// The machine `:path` means: your only one, or the one you pick in a terminal. Never guesses
+/// between several in a script.
+async fn pick_existing(api_key: &str, json: bool) -> Result<String> {
+    let machines: Vec<Machine> = virtual_machines::list(api_key, json)
+        .await?
+        .into_iter()
+        .filter(|m| !matches!(m.state.as_str(), "deleted" | "deleting"))
+        .collect();
+    match machines.as_slice() {
+        [] => bail!("You have no virtual machines. Create one with `stashbase vms create`."),
+        [only] => Ok(only.id.clone()),
+        _ if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() => bail!(
+            "You have several machines: name one as `ID:path`. List them with `stashbase vms list`."
+        ),
+        _ => {
+            let labels = machines
+                .iter()
+                .map(|m| format!("{}  {:<8}", m.id, m.state))
+                .collect();
+            match select("Copy with which virtual machine?", labels) {
+                Some(index) => Ok(machines[index].id.clone()),
+                None => bail!("Cancelled."),
+            }
+        }
+    }
+}
+
+/// Copies files between this computer and a machine through the user's own `scp`, with the same
+/// short-lived certificate and pinned host key as `connect`.
+async fn cp(
+    api_key: &str,
+    source: &str,
+    destination: &str,
+    recursive: bool,
+    json: bool,
+    silent: bool,
+) -> Result<()> {
+    let (id, remote_path, upload) = match (split_remote(source), split_remote(destination)) {
+        (Some((id, path)), None) => (id, path, false),
+        (None, Some((id, path))) => (id, path, true),
+        (Some(_), Some(_)) => {
+            bail!("Copy between this computer and one machine: only one side can be `ID:path`.")
+        }
+        (None, None) => {
+            bail!("Name the machine side as `ID:path` or `:path`, for example `:notes.md`.")
+        }
+    };
+    let id = match id {
+        Some(id) => id.to_string(),
+        None => pick_existing(api_key, json).await?,
+    };
+    let target = prepare_ssh(api_key, &id, json, silent).await?;
+    // Relative paths start in the agent's home directory, as with plain scp.
+    let remote = format!(
+        "agent@{}:{}",
+        target.ip,
+        if remote_path.is_empty() {
+            "."
+        } else {
+            remote_path
+        }
+    );
+    let mut scp = Command::new("scp");
+    scp.args(target.options()?);
+    if recursive {
+        scp.arg("-r");
+    }
+    if silent || json {
+        scp.arg("-q");
+    }
+    if upload {
+        scp.arg(source).arg(&remote);
+    } else {
+        scp.arg(&remote).arg(destination);
+    }
+    let status = scp
+        .status()
+        .context("`scp` was not found on this machine.")?;
+    if !status.success() {
         crate::exit::Exit::code(status.code().unwrap_or(1)).terminate();
     }
     Ok(())
