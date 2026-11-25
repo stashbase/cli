@@ -23,7 +23,7 @@ pub enum VirtualMachineSubcommand {
     Autosuspend(VirtualMachineAutosuspend),
     /// Show the workspace's machine time and data transfer for this period
     Usage(VirtualMachineUsage),
-    /// Connect to a virtual machine: pick an existing one or create a new one
+    /// Connect to a virtual machine: your only one, or pick or create one
     Connect(VirtualMachineConnect),
     /// Copy files between this computer and a machine (`ID:path` or `:path` names the machine side)
     Cp(VirtualMachineCp),

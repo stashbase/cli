@@ -718,18 +718,25 @@ async fn pick_or_create(
     json: bool,
     silent: bool,
 ) -> Result<String> {
-    if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
-        bail!(
-            "Pass a machine ID, or run in a terminal to pick a machine. \
-             List machines with `stashbase vms list`."
-        );
-    }
     let machines = virtual_machines::list(api_key, json).await?;
     // A machine without a key from this CLI gets one added when you connect.
     let usable: Vec<Machine> = machines
         .into_iter()
         .filter(|m| matches!(m.state.as_str(), "running" | "stopped" | "suspended"))
         .collect();
+    // Most members have one machine: use it without asking. `vms create` makes another.
+    if let [only] = usable.as_slice() {
+        if !silent && !json {
+            eprintln!("Connecting to {}.", only.id);
+        }
+        return Ok(only.id.clone());
+    }
+    if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+        bail!(
+            "Pass a machine ID, or run in a terminal to pick a machine. \
+             List machines with `stashbase vms list`."
+        );
+    }
     if usable.is_empty() {
         if !silent {
             eprintln!("No existing virtual machines; creating a new one.");
