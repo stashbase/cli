@@ -37,7 +37,9 @@ pub enum VirtualMachineSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "vms create [--location <us|eu|asia>] [--name <NAME>]")]
+#[command(
+    override_usage = "vms create [--location <us|eu|asia>] [--name <NAME>] [--autosuspend <on|off>]"
+)]
 pub struct VirtualMachineCreate {
     /// A name for the machine (up to 40 letters, numbers, spaces, dots, dashes or underscores).
     /// Asked for in a terminal when omitted; leave it empty to skip.
@@ -49,6 +51,12 @@ pub struct VirtualMachineCreate {
     /// locations with their cloud regions; required in scripts.
     #[arg(long, value_parser = ["us", "eu", "asia"])]
     pub location: Option<String>,
+
+    /// `on` (the default) suspends the machine after a period without activity, keeping its
+    /// session; `off` keeps it running until you stop it or a usage limit is reached. Change it
+    /// later with `stashbase vms autosuspend <ID> on|off`.
+    #[arg(long, value_name = "on|off", value_parser = ["on", "off"], default_value = "on")]
+    pub autosuspend: String,
 }
 
 #[derive(Debug, Args)]

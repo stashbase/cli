@@ -59,6 +59,7 @@ async fn run_command(
                 &api_key,
                 args.location.as_deref(),
                 args.name.as_deref(),
+                args.autosuspend == "on",
                 json,
                 silent,
             )
@@ -333,6 +334,7 @@ async fn create(
     api_key: &str,
     location: Option<&str>,
     name: Option<&str>,
+    autosuspend: bool,
     json: bool,
     silent: bool,
 ) -> Result<()> {
@@ -351,7 +353,18 @@ async fn create(
         }
         None => None,
     };
-    let machine = create_machine(api_key, &location, name, false, json, silent).await?;
+    let mut machine = create_machine(api_key, &location, name, false, json, silent).await?;
+    // New machines suspend when idle; turning it off is a second call once the machine exists.
+    if !autosuspend {
+        machine = virtual_machines::set_auto_suspend(api_key, &machine.id, false, json)
+            .await
+            .with_context(|| {
+                format!(
+                    "Machine {} was created, but turning auto-suspend off failed. Run `stashbase vms autosuspend {} off`.",
+                    machine.id, machine.id
+                )
+            })?;
+    }
     if json {
         println!("{}", get_formatted_json_string(&machine, true)?);
     } else if !silent {
