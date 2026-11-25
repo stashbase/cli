@@ -773,6 +773,7 @@ async fn run(api_key: &str, args: VirtualMachineConnect, json: bool, silent: boo
         &id,
         &args.command,
         &args.forward,
+        &args.ssh_arg,
         args.keep_awake,
         !args.no_tmux,
         json,
@@ -978,6 +979,7 @@ async fn connect(
     id: &str,
     command: &[String],
     forwards: &[PortForward],
+    ssh_args: &[String],
     keep_awake: Option<Duration>,
     use_tmux: bool,
     json: bool,
@@ -1001,6 +1003,10 @@ async fn connect(
             forward.local, forward.remote
         ));
     }
+    // After ours: for a repeated option ssh keeps the first value, so these cannot loosen the
+    // host key checks or swap the certificate, and the machine's sshd refuses agent and remote
+    // forwarding whatever is asked.
+    ssh.args(ssh_args);
     if !command.is_empty() && std::io::stdin().is_terminal() {
         ssh.arg("-t");
     }

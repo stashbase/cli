@@ -100,7 +100,7 @@ pub struct VirtualMachineUsage {}
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "vms connect [ID] [--location us|eu|asia] [--forward <[LOCAL:]PORT>]... [--keep-awake[=DURATION]] [--no-tmux] [-- <COMMAND>...]"
+    override_usage = "vms connect [ID] [--location us|eu|asia] [--forward <[LOCAL:]PORT>]... [--keep-awake[=DURATION]] [--no-tmux] [--ssh-arg <ARG>]... [-- <COMMAND>...]"
 )]
 pub struct VirtualMachineConnect {
     /// Machine ID (vm_… or legacy UUID) to use; omit to pick an existing one or create a new one
@@ -134,6 +134,12 @@ pub struct VirtualMachineConnect {
     /// Open a plain login shell instead of the machine's shared tmux session
     #[arg(long)]
     pub no_tmux: bool,
+
+    /// Pass an extra argument to `ssh`, e.g. `--ssh-arg=-v` to debug a connection or
+    /// `--ssh-arg=-oServerAliveInterval=60`. Repeat for more. The machine's host key checks and
+    /// certificate always apply, and the machine only allows local port forwards.
+    #[arg(long, value_name = "ARG", allow_hyphen_values = true)]
+    pub ssh_arg: Vec<String>,
 
     /// Attach to the machine's shared tmux session (the default)
     #[arg(long, conflicts_with = "no_tmux")]
