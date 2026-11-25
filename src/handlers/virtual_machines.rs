@@ -376,6 +376,8 @@ struct MachineRow {
     name: String,
     #[tabled(rename = "State")]
     state: String,
+    #[tabled(rename = "Region")]
+    region: String,
     #[tabled(rename = "SSH")]
     ssh: String,
 }
@@ -396,7 +398,8 @@ async fn list(api_key: &str, json: bool, silent: bool) -> Result<()> {
             .map(|m| MachineRow {
                 id: m.id.clone(),
                 name: m.name.clone().unwrap_or_else(|| "---".to_owned()),
-                state: m.state.clone(),
+                state: state_label(m),
+                region: m.location.clone().unwrap_or_else(|| "---".to_owned()),
                 // Plain SSH needs your key on the machine; `stashbase vms connect <id>` does not.
                 ssh: m
                     .ssh_command
@@ -465,7 +468,7 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
     let mut fields = vec![
         ("ID", machine.id.clone()),
         ("Name", machine.name.clone().unwrap_or_else(dash)),
-        ("State", machine.state.clone()),
+        ("State", state_label(&machine)),
         ("Region", machine.location.clone().unwrap_or_else(dash)),
         ("IP", machine.ip.clone().unwrap_or_else(dash)),
         ("SSH", machine.ssh_command.clone().unwrap_or_else(dash)),
@@ -499,7 +502,7 @@ async fn info(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
             },
         ));
     }
-    if let Some(note) = state_note(&machine.state) {
+    if let Some(note) = state_note(&machine) {
         fields.push(("Status", note.to_owned()));
     }
     if let Some(until) = &machine.session_kept_until {
@@ -582,8 +585,20 @@ async fn metrics(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()
 }
 
 /// What a suspended or stopped machine keeps, in the dashboard's words.
-fn state_note(state: &str) -> Option<&'static str> {
-    match state {
+/// The state as shown in tables: an archived machine says so, since it takes minutes to restore.
+fn state_label(machine: &Machine) -> String {
+    if machine.archived == Some(true) {
+        format!("{} (archived)", machine.state)
+    } else {
+        machine.state.clone()
+    }
+}
+
+fn state_note(machine: &Machine) -> Option<&'static str> {
+    match machine.state.as_str() {
+        _ if machine.archived == Some(true) => Some(
+            "Archived after a few days unused. Your files are kept; starting it restores its disk, which takes a few minutes.",
+        ),
         "suspended" => Some("Idle. Your session is kept and resumes in seconds."),
         "stopped" => Some("Shut down. Your files are kept; programs start fresh."),
         _ => None,
