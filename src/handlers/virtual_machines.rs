@@ -736,6 +736,7 @@ async fn run(api_key: &str, args: VirtualMachineConnect, json: bool, silent: boo
         &id,
         &args.command,
         &args.forward,
+        args.keep_awake,
         !args.no_tmux,
         json,
         silent,
@@ -796,11 +797,13 @@ async fn wait_until_settled(api_key: &str, id: &str, json: bool) -> Result<Machi
 
 /// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
 /// runs `command` there, through the user's own `ssh`.
+#[allow(clippy::too_many_arguments)]
 async fn connect(
     api_key: &str,
     id: &str,
     command: &[String],
     forwards: &[PortForward],
+    keep_awake: Option<Duration>,
     use_tmux: bool,
     json: bool,
     silent: bool,
@@ -970,13 +973,63 @@ async fn connect(
         });
         libc::signal(libc::SIGINT, libc::SIG_IGN)
     };
-    let status = ssh.status();
+    if !silent && !json {
+        for forward in forwards {
+            eprintln!(
+                "Forwarding localhost:{} to the machine's port {}. Traffic through it keeps the machine awake; an unused forward does not.",
+                forward.local, forward.remote
+            );
+        }
+        if let Some(limit) = keep_awake {
+            eprintln!(
+                "Keeping the machine awake while connected, for up to {}. Usage limits still apply.",
+                format_minutes(limit)
+            );
+        }
+    }
+    // While connected, tell the backend every few minutes that someone is here, up to the limit.
+    // The pings stop with this process, so a closed terminal, a crash or a sleeping laptop
+    // lets the machine suspend after the normal idle time again.
+    let pinger = keep_awake.map(|limit| {
+        let (api_key, id) = (api_key.to_owned(), id.to_owned());
+        tokio::spawn(async move {
+            let started = std::time::Instant::now();
+            loop {
+                sleep(Duration::from_secs(300)).await;
+                if started.elapsed() >= limit {
+                    return true;
+                }
+                // A failed ping is retried with the next one; the idle time is far longer.
+                let _ = virtual_machines::keep_awake(&api_key, &id, true).await;
+            }
+        })
+    });
+    // ssh runs on a blocking thread so the pings above keep running meanwhile.
+    let status = tokio::task::spawn_blocking(move || ssh.status())
+        .await
+        .context("ssh did not finish")?;
+    let keep_awake_ended = match pinger {
+        Some(pinger) if pinger.is_finished() => pinger.await.unwrap_or(false),
+        Some(pinger) => {
+            pinger.abort();
+            false
+        }
+        None => false,
+    };
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGINT, previous_sigint);
     }
     let status = status.context("`ssh` was not found on this machine.")?;
     restore_terminal();
+    if keep_awake_ended && !silent && !json {
+        if let Some(limit) = keep_awake {
+            eprintln!(
+                "Keep-awake ended after {}, so the machine could suspend after the normal idle time again.",
+                format_minutes(limit)
+            );
+        }
+    }
     // 255 is ssh's own failure: here usually a connection that died because the machine was
     // suspended (idle) or stopped. Say what to do instead of leaving a bare error.
     if status.code() == Some(255) && !silent && !json {
@@ -1105,5 +1158,15 @@ mod tests {
         let full_dir = machine_key_dir("00000000-0000-0000-0000-000000000001").unwrap();
 
         assert_eq!(public_dir, full_dir);
+    }
+}
+
+/// `8h`, `90m` → "8h", "1h 30m".
+fn format_minutes(d: Duration) -> String {
+    let minutes = d.as_secs() / 60;
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m}m"),
+        (h, 0) => format!("{h}h"),
+        (h, m) => format!("{h}h {m}m"),
     }
 }

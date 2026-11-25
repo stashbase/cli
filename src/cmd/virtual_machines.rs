@@ -85,7 +85,7 @@ pub struct VirtualMachineUsage {}
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "vms connect [ID] [--location us|eu|asia] [--forward <[LOCAL:]PORT>]... [--no-tmux] [-- <COMMAND>...]"
+    override_usage = "vms connect [ID] [--location us|eu|asia] [--forward <[LOCAL:]PORT>]... [--keep-awake[=DURATION]] [--no-tmux] [-- <COMMAND>...]"
 )]
 pub struct VirtualMachineConnect {
     /// Machine ID (vm_… or legacy UUID) to use; omit to pick an existing one or create a new one
@@ -102,6 +102,19 @@ pub struct VirtualMachineConnect {
     /// Only this computer can use it. Repeat for more ports.
     #[arg(long, value_name = "[LOCAL:]PORT", value_parser = parse_forward)]
     pub forward: Vec<PortForward>,
+
+    /// Keep the machine from suspending while idle for as long as this stays connected, up to
+    /// DURATION (default 8h, at most 24h; e.g. `--keep-awake=2h`, `--keep-awake=90m`). Usage
+    /// limits still apply. Disconnecting ends it.
+    #[arg(
+        long,
+        value_name = "DURATION",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "8h",
+        value_parser = parse_keep_awake
+    )]
+    pub keep_awake: Option<std::time::Duration>,
 
     /// Open a plain login shell instead of the machine's shared tmux session
     #[arg(long)]
@@ -171,9 +184,43 @@ fn parse_forward(value: &str) -> Result<PortForward, String> {
     }
 }
 
+/// `90m`, `2h`, `1h30m`: between one minute and 24 hours.
+fn parse_keep_awake(value: &str) -> Result<std::time::Duration, String> {
+    let invalid = || format!("`{value}` is not a duration such as 30m, 2h or 1h30m");
+    let (mut minutes, mut number) = (0u64, String::new());
+    for c in value.trim().chars() {
+        match c {
+            '0'..='9' => number.push(c),
+            'h' | 'm' => {
+                let n: u64 = number.parse().map_err(|_| invalid())?;
+                minutes = minutes.saturating_add(if c == 'h' { n.saturating_mul(60) } else { n });
+                number.clear();
+            }
+            _ => return Err(invalid()),
+        }
+    }
+    if !number.is_empty() || minutes == 0 {
+        return Err(invalid());
+    }
+    if minutes > 24 * 60 {
+        return Err("--keep-awake is at most 24h".into());
+    }
+    Ok(std::time::Duration::from_secs(minutes * 60))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_keep_awake() {
+        assert_eq!(parse_keep_awake("90m").unwrap().as_secs(), 90 * 60);
+        assert_eq!(parse_keep_awake("2h").unwrap().as_secs(), 2 * 3600);
+        assert_eq!(parse_keep_awake("1h30m").unwrap().as_secs(), 90 * 60);
+        for bad in ["", "0m", "2", "h", "2d", "25h", "-1h"] {
+            assert!(parse_keep_awake(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn parses_forwards() {

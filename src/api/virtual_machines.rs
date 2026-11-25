@@ -292,6 +292,17 @@ pub async fn resume(api_key: &str, id: &str, json: bool) -> Result<Machine> {
     .await
 }
 
+/// Restarts a running machine's idle countdown (`connect --keep-awake`).
+pub async fn keep_awake(api_key: &str, id: &str, json: bool) -> Result<Machine> {
+    send(
+        http_client()?
+            .post(url(&format!("/{id}/keep-awake")))
+            .bearer_auth(api_key),
+        json,
+    )
+    .await
+}
+
 pub async fn stop(api_key: &str, id: &str, json: bool) -> Result<Machine> {
     send(
         http_client()?
