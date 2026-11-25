@@ -834,6 +834,24 @@ async fn run(api_key: &str, args: VirtualMachineConnect, json: bool, silent: boo
     .await
 }
 
+/// Resumes a machine, waiting while another operation runs on it. A machine unused for a few days
+/// is archived in the background (minutes), and the stopped machine refuses to start until that
+/// ends; `connect` waits it out instead of failing. Gives up after about ten minutes.
+async fn resume_when_free(api_key: &str, id: &str, json: bool) -> Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(600);
+    loop {
+        match virtual_machines::resume(api_key, id, json).await {
+            Err(error)
+                if format!("{error:#}").contains("virtual_machine_busy")
+                    && std::time::Instant::now() < deadline =>
+            {
+                sleep(Duration::from_secs(5)).await;
+            }
+            result => return result.map(|_| ()),
+        }
+    }
+}
+
 /// Follows a machine that is being created or started until it runs (up to about five minutes:
 /// restoring an archived machine takes a few).
 async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machine> {
@@ -976,7 +994,7 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
             let mut spinner = (!silent && !json).then(|| new_spinner(message, Streams::Stderr));
             let started = async {
                 if matches!(machine.state.as_str(), "stopped" | "suspended" | "error") {
-                    virtual_machines::resume(api_key, id, json).await?;
+                    resume_when_free(api_key, id, json).await?;
                 }
                 wait_until_running(api_key, id, json).await
             }
