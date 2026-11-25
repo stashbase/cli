@@ -106,8 +106,45 @@ fn ssh_option_path(path: &Path) -> Result<String> {
 
 fn keys_dir() -> Result<PathBuf> {
     let dirs = ProjectDirs::from("", "", "stashbase").context("Could not find data directory.")?;
-    // Keep the existing directory so saved SSH keys and known-hosts files remain usable.
-    Ok(dirs.data_local_dir().join("cloud"))
+    Ok(dirs.data_local_dir().join("vms"))
+}
+
+/// Removes the key folders of machines that are no longer listed (deleted from the dashboard, for
+/// example; `vms delete` removes its own). Only folders untouched for a day go: they may belong to
+/// a machine in another workspace, and a removed folder costs nothing more than a new key and
+/// certificate on the next connect. Best effort; errors are ignored.
+fn prune_key_dirs(machines: &[Machine]) {
+    let Ok(keys) = keys_dir() else { return };
+    let Ok(entries) = fs::read_dir(&keys) else {
+        return;
+    };
+    let listed: std::collections::HashSet<uuid::Uuid> = machines
+        .iter()
+        .filter_map(|m| machine_uuid(&m.id).ok())
+        .collect();
+    let day = Duration::from_secs(24 * 60 * 60);
+    let recent = |path: &std::path::Path| {
+        let newest = fs::read_dir(path)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| e.metadata().ok()?.modified().ok())
+            .chain(fs::metadata(path).ok().and_then(|m| m.modified().ok()))
+            .max();
+        newest.is_none_or(|time| time.elapsed().map_or(true, |age| age < day))
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // A machine's folder is its UUID; `pending-…` is a create that did not finish.
+        let stale = match uuid::Uuid::parse_str(&name) {
+            Ok(id) => !listed.contains(&id),
+            Err(_) => name.starts_with("pending-"),
+        };
+        if stale && path.is_dir() && !recent(&path) {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
 }
 
 fn machine_key_dir(id: &str) -> Result<PathBuf> {
@@ -875,6 +912,7 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
     let dir = machine_key_dir(id)?;
     let key = dir.join("id_ed25519");
     let machines = virtual_machines::list(api_key, json).await?;
+    prune_key_dirs(&machines);
     let machine = machines
         .into_iter()
         .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
