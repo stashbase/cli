@@ -1192,7 +1192,7 @@ async fn connect(
 }
 
 /// `vm_abc:path` (or a machine UUID before the colon) names a path on a machine, and `:path` a
-/// path on your only machine (or one you pick). Anything else is local; a Windows drive letter
+/// path on a machine you pick. Anything else is local; a Windows drive letter
 /// (`C:\\dir`) is a single character before the colon, so it never looks like a machine.
 fn split_remote(arg: &str) -> Option<(Option<&str>, &str)> {
     if let Some(path) = arg.strip_prefix(':') {
@@ -1202,8 +1202,8 @@ fn split_remote(arg: &str) -> Option<(Option<&str>, &str)> {
     (id.starts_with("vm_") || uuid::Uuid::parse_str(id).is_ok()).then_some((Some(id), path))
 }
 
-/// The machine `:path` means: your only one, or the one you pick in a terminal. Never guesses
-/// between several in a script.
+/// The machine `:path` means: the one you pick in a terminal, even when you have only one, so
+/// files never go somewhere you did not choose. Scripts must name the machine (`ID:path`).
 async fn pick_existing(api_key: &str, json: bool) -> Result<String> {
     let machines: Vec<Machine> = virtual_machines::list(api_key, json)
         .await?
@@ -1212,10 +1212,9 @@ async fn pick_existing(api_key: &str, json: bool) -> Result<String> {
         .collect();
     match machines.as_slice() {
         [] => bail!("You have no virtual machines. Create one with `stashbase vms create`."),
-        [only] => Ok(only.id.clone()),
-        _ if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() => bail!(
-            "You have several machines: name one as `ID:path`. List them with `stashbase vms list`."
-        ),
+        _ if json || !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() => {
+            bail!("Name the machine as `ID:path`. List machines with `stashbase vms list`.")
+        }
         _ => {
             let labels = machines
                 .iter()

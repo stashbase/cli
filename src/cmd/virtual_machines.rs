@@ -182,7 +182,7 @@ pub struct VirtualMachineDelete {
 #[derive(Debug, Args)]
 #[command(
     override_usage = "vms cp [-r] <SOURCE> <DESTINATION>",
-    after_help = "Examples:\n  stashbase vms cp ./notes.md :notes.md\n  stashbase vms cp -r :project/dist ./dist\n  stashbase vms cp ./notes.md vm_abc123:notes.md\n\n`:path` uses your only machine, or asks which one when you have several. Paths on the machine are relative to its home directory (/home/agent) unless they start with /."
+    after_help = "Examples:\n  stashbase vms cp ./notes.md :notes.md\n  stashbase vms cp -r :project/dist ./dist\n  stashbase vms cp ./notes.md vm_abc123:notes.md\n\n`:path` asks which machine to use (in scripts, pass `ID:path`). Paths on the machine are relative to its home directory (/home/agent) unless they start with /."
 )]
 pub struct VirtualMachineCp {
     /// What to copy: a local path, or `ID:path` / `:path` on a machine
