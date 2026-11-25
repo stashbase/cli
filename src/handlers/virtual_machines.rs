@@ -998,24 +998,9 @@ async fn connect(
                 if started.elapsed() >= limit {
                     return true;
                 }
-                // The next ping comes at half the time left before the machine would suspend, so
-                // it lands in time whatever the idle time is: about every 5 minutes with an hour,
-                // more often with a few minutes. A failed ping is retried sooner.
-                let wait = match virtual_machines::keep_awake(&api_key, &id, true).await {
-                    Ok(machine) => machine
-                        .idle_suspend_at
-                        .as_deref()
-                        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
-                        .map(|at| {
-                            let left = (at.with_timezone(&chrono::Utc) - chrono::Utc::now())
-                                .num_seconds()
-                                .max(0) as u64;
-                            left / 2
-                        })
-                        .unwrap_or(300),
-                    Err(_) => 20,
-                };
-                sleep(Duration::from_secs(wait.clamp(20, 300))).await;
+                // A failed ping is simply retried with the next one.
+                let _ = virtual_machines::keep_awake(&api_key, &id, true).await;
+                sleep(KEEP_AWAKE_INTERVAL).await;
             }
         })
     });
@@ -1059,6 +1044,14 @@ async fn connect(
     }
     Ok(())
 }
+
+/// How often `connect --keep-awake` pings: every 5 minutes, well within the idle time. Local
+/// debug builds ping every 5 seconds, for dev backends with an idle time of a minute or two.
+const KEEP_AWAKE_INTERVAL: Duration = if cfg!(debug_assertions) {
+    Duration::from_secs(5)
+} else {
+    Duration::from_secs(300)
+};
 
 /// Puts the local terminal back to normal after ssh ends. Programs on the machine (tmux, agents)
 /// switch modes on (hidden cursor, mouse reporting, the alternate screen, focus reports) and only
