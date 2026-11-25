@@ -1,4 +1,4 @@
-//! `stashbase vms create|list|info|metrics|autosuspend|usage|connect|start|stop|delete`: managed
+//! `stashbase vms create|list|info|metrics|rename|autosuspend|usage|connect|start|stop|delete`: managed
 //! virtual machines reached directly through the user's own `ssh`.
 
 use std::{
@@ -67,6 +67,9 @@ async fn run_command(
         VirtualMachineSubcommand::List(_) => list(&api_key, json, silent).await,
         VirtualMachineSubcommand::Info(args) => info(&api_key, &args.id, json, silent).await,
         VirtualMachineSubcommand::Metrics(args) => metrics(&api_key, &args.id, json, silent).await,
+        VirtualMachineSubcommand::Rename(args) => {
+            rename(&api_key, &args.id, &args.name, json, silent).await
+        }
         VirtualMachineSubcommand::Autosuspend(args) => {
             autosuspend(&api_key, &args.id, args.mode == "on", json, silent).await
         }
@@ -560,6 +563,22 @@ fn start_message(machine: &Machine) -> &'static str {
     } else {
         "Starting the machine..."
     }
+}
+
+async fn rename(api_key: &str, id: &str, name: &str, json: bool, silent: bool) -> Result<()> {
+    validate_id(id)?;
+    let name = name.trim();
+    let name = (!name.is_empty()).then_some(name);
+    let machine = virtual_machines::rename(api_key, id, name, json).await?;
+    if json {
+        println!("{}", get_formatted_json_string(&machine, true)?);
+    } else if !silent {
+        match name {
+            Some(name) => println!("Machine {id} is now named {name}."),
+            None => println!("Machine {id} no longer has a name."),
+        }
+    }
+    Ok(())
 }
 
 async fn autosuspend(

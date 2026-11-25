@@ -17,6 +17,8 @@ pub enum VirtualMachineSubcommand {
     Info(VirtualMachineInfo),
     /// Show a running machine's CPU, memory and disk
     Metrics(VirtualMachineMetrics),
+    /// Rename a virtual machine (an empty name clears it)
+    Rename(VirtualMachineRename),
     /// Turn suspending when idle on or off for a machine
     Autosuspend(VirtualMachineAutosuspend),
     /// Show the workspace's machine time and data transfer for this period
@@ -67,6 +69,17 @@ pub struct VirtualMachineMetrics {
     /// Machine ID (vm_… or legacy UUID)
     #[arg(value_name = "ID")]
     pub id: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "vms rename <ID> <NAME>")]
+pub struct VirtualMachineRename {
+    /// Machine ID (vm_… or legacy UUID)
+    #[arg(value_name = "ID")]
+    pub id: String,
+    /// The new name (up to 40 letters, numbers, spaces, dots, dashes or underscores); `""` clears it
+    #[arg(value_name = "NAME")]
+    pub name: String,
 }
 
 #[derive(Debug, Args)]
