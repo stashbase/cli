@@ -1157,6 +1157,23 @@ async fn cp(
             remote_path
         }
     );
+    // scp does not create missing folders on the machine: create the destination's parent first
+    // (or the destination itself when it ends with `/`). A failure is left to scp to report.
+    if upload {
+        let parent = match remote_path.rfind('/') {
+            Some(0) => None,
+            Some(end) => Some(&remote_path[..end]),
+            None => None,
+        };
+        if let Some(parent) = parent.filter(|p| !p.is_empty()) {
+            let _ = Command::new("ssh")
+                .args(target.options()?)
+                .arg(format!("agent@{}", target.ip))
+                .arg(format!("mkdir -p -- {}", shell_quote(parent)))
+                .stdin(std::process::Stdio::null())
+                .status();
+        }
+    }
     let mut scp = Command::new("scp");
     scp.args(target.options()?);
     if recursive {
