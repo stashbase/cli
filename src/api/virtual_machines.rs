@@ -295,17 +295,24 @@ fn url(path: &str) -> String {
     format!("{}/v1/virtual-machines{}", client::get_api_url(), path)
 }
 
-/// Creates a machine without a login key: it is reached only with certificates from `certificate`.
+/// The body of a create request. The key is always empty: the machine gets no login key and is
+/// reached only with certificates from `certificate`, so no `authorized_keys` entry outlives a
+/// revoked API key or a disabled 2FA.
+fn create_body(location: &str, name: Option<&str>) -> serde_json::Value {
+    let mut body = serde_json::json!({ "ssh_public_key": "", "location": location });
+    if let Some(name) = name {
+        body["name"] = name.into();
+    }
+    body
+}
+
 pub async fn create(
     api_key: &str,
     location: &str,
     name: Option<&str>,
     json: bool,
 ) -> Result<Machine> {
-    let mut body = serde_json::json!({ "ssh_public_key": "", "location": location });
-    if let Some(name) = name {
-        body["name"] = name.into();
-    }
+    let body = create_body(location, name);
     send(
         http_client()?
             .post(url(""))
@@ -422,7 +429,19 @@ pub async fn certificate(
 
 #[cfg(test)]
 mod tests {
-    use super::NoAnswer;
+    use super::{create_body, NoAnswer};
+
+    #[test]
+    fn create_never_sends_a_login_key() {
+        assert_eq!(
+            create_body("eu", Some("dev")),
+            serde_json::json!({ "ssh_public_key": "", "location": "eu", "name": "dev" })
+        );
+        assert_eq!(
+            create_body("us", None),
+            serde_json::json!({ "ssh_public_key": "", "location": "us" })
+        );
+    }
 
     #[test]
     fn a_missing_answer_prints_only_its_message() {

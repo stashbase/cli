@@ -879,3 +879,105 @@ fn conflicting_scope_flags_are_reported_as_validation_failures() {
         assert_eq!(events[0]["error_kind"], "validation", "{}", args[0]);
     }
 }
+
+// ---- virtual machines ---------------------------------------------------
+
+/// A failed request under `--json` prints one JSON document on stderr, with no
+/// "Caused by:" chain after it, so scripts can parse it.
+#[test]
+fn a_vms_request_that_fails_under_json_prints_one_json_document() {
+    let project = Project::new();
+
+    let out = project.run(&["vms", "list", "--json", "--api-key", "k"]);
+
+    check(
+        "vms list --json",
+        &out,
+        1,
+        "Could not connect to the API",
+        Reported::NotAsserted,
+    );
+    let stderr: String = text(&out.stderr)
+        .lines()
+        .filter(|line| !line.starts_with(DEBUG_PREFIX))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let error: Value = serde_json::from_str(stderr.trim())
+        .unwrap_or_else(|e| panic!("stderr is not one JSON document ({e}):\n{stderr}"));
+    assert_eq!(error["ok"], false, "{error}");
+}
+
+/// `--ssh-arg` values outside the allowlist are refused before any request,
+/// including grouped short options that would set a config file.
+#[test]
+fn vms_connect_refuses_ssh_args_that_could_replace_the_host_key_pin() {
+    let project = Project::new();
+
+    for arg in [
+        "--ssh-arg=-vF/tmp/config",
+        "--ssh-arg=-oKnownHostsCommand=/bin/true",
+    ] {
+        let out = project.run(&["vms", "connect", "vm_x", arg, "--api-key", "k"]);
+        check(arg, &out, 1, "is not supported", Reported::NotAsserted);
+        // Refused up front: the dead API was never contacted.
+        assert!(
+            !text(&out.stderr).contains("Could not connect"),
+            "{arg}: {}",
+            text(&out.stderr)
+        );
+    }
+}
+
+/// Ctrl+C while a create request hangs stops the command with 130 and keeps
+/// the warning that the machine may exist anyway.
+#[test]
+fn ctrl_c_during_vms_create_exits_130_and_warns_to_check_the_list() {
+    let Ok(listener) = TcpListener::bind("127.0.0.1:0") else {
+        eprintln!("skipping: cannot bind a loopback port here");
+        return;
+    };
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    // Accept and never answer, so the request hangs until it is aborted.
+    thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(50)));
+            let _ = stream.read(&mut [0u8; 1024]);
+            held.push(stream);
+        }
+    });
+    let project = Project::new();
+
+    let mut child = project
+        .command(
+            &["vms", "create", "--location", "eu", "--api-key", "k"],
+            &url,
+        )
+        .spawn()
+        .unwrap();
+    thread::sleep(Duration::from_millis(800));
+    let _ = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status();
+    let started = Instant::now();
+    let out = loop {
+        if child.try_wait().unwrap().is_some() {
+            break child.wait_with_output().unwrap();
+        }
+        if started.elapsed() > Duration::from_secs(20) {
+            let _ = child.kill();
+            panic!("vms create did not stop after Ctrl-C");
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+
+    check(
+        "vms create ctrl-c",
+        &out,
+        130,
+        "Check `stashbase vms list` before retrying",
+        Reported::NotAsserted,
+    );
+    assert!(text(&out.stderr).contains("Request aborted"));
+}

@@ -787,6 +787,22 @@ async fn region(api_key: &str, location: Option<&str>, json: bool) -> Result<Str
     }
 }
 
+/// States `prepare_ssh` can start or wait for, so a machine that is busy for a moment is still
+/// connected to rather than a second one created.
+fn can_prepare_ssh(state: &str) -> bool {
+    matches!(
+        state,
+        "running"
+            | "stopped"
+            | "suspended"
+            | "error"
+            | "creating"
+            | "resuming"
+            | "suspending"
+            | "stopping"
+    )
+}
+
 async fn pick_or_create(
     api_key: &str,
     location: Option<&str>,
@@ -797,21 +813,7 @@ async fn pick_or_create(
     // A machine without a key from this CLI gets one added when you connect.
     let usable: Vec<Machine> = machines
         .into_iter()
-        // Everything `prepare_ssh` can start or wait for, so a machine that is busy for a moment
-        // is still connected to rather than a second one created.
-        .filter(|m| {
-            matches!(
-                m.state.as_str(),
-                "running"
-                    | "stopped"
-                    | "suspended"
-                    | "error"
-                    | "creating"
-                    | "resuming"
-                    | "suspending"
-                    | "stopping"
-            )
-        })
+        .filter(|m| can_prepare_ssh(&m.state))
         .collect();
     // Most members have one machine: use it without asking. `vms create` makes another.
     if let [only] = usable.as_slice() {
@@ -1105,14 +1107,17 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
 /// Removes session and key-generation folders left by runs that exited without cleaning up (an
 /// exit code passed through from ssh, a crash). Their certificates expired long ago. Best effort.
 fn remove_stale_sessions(dir: &Path) {
-    let hour = Duration::from_secs(60 * 60);
+    remove_sessions_older_than(dir, Duration::from_secs(60 * 60));
+}
+
+fn remove_sessions_older_than(dir: &Path, max_age: Duration) {
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         let old = entry
             .metadata()
             .and_then(|m| m.modified())
             .ok()
             .and_then(|time| time.elapsed().ok())
-            .is_some_and(|age| age > hour);
+            .is_some_and(|age| age > max_age);
         let name = entry.file_name().to_string_lossy().into_owned();
         if old && (name.starts_with("session-") || name.starts_with("keygen-")) {
             let _ = fs::remove_dir_all(entry.path());
@@ -1148,6 +1153,34 @@ fn check_ssh_args(ssh_args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// The `ssh` options for `connect`, before the destination: the pinned host key and certificate
+/// first, then the user's allowlisted extras (`check_ssh_args`), then our keepalive defaults and
+/// forwards. ssh keeps the first value of a repeated option, so the extras cannot loosen the pin
+/// and a user's keepalive wins over ours.
+fn connection_args(
+    target: &SshTarget,
+    ssh_args: &[String],
+    forwards: &[PortForward],
+) -> Result<Vec<std::ffi::OsString>> {
+    let mut args = target.options()?;
+    args.extend(ssh_args.iter().map(Into::into));
+    // A machine that suspends freezes the connection without closing it; notice within about
+    // 45 seconds instead of hanging.
+    for option in ["ServerAliveInterval=15", "ServerAliveCountMax=3"] {
+        args.extend(["-o".into(), option.into()]);
+    }
+    // Forwards listen on loopback only, so nobody else on this network reaches the machine's
+    // ports; a local port already in use fails the connection instead of only warning.
+    if !forwards.is_empty() {
+        args.extend(["-o".into(), "ExitOnForwardFailure=yes".into()]);
+    }
+    for forward in forwards {
+        args.push("-L".into());
+        args.push(format!("127.0.0.1:{}:localhost:{}", forward.local, forward.remote).into());
+    }
+    Ok(args)
+}
+
 /// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
 /// runs `command` there, through the user's own `ssh`.
 #[allow(clippy::too_many_arguments)]
@@ -1164,25 +1197,7 @@ async fn connect(
 ) -> Result<()> {
     let target = prepare_ssh(api_key, id, json, silent).await?;
     let mut ssh = Command::new("ssh");
-    // The extra arguments are allowlisted (`check_ssh_args`), so they can come before our
-    // keepalive defaults: ssh keeps the first value, and a user's keepalive wins.
-    ssh.args(target.options()?)
-        .args(ssh_args)
-        // A machine that suspends freezes the connection without closing it; notice within about
-        // 45 seconds instead of hanging.
-        .args(["-o", "ServerAliveInterval=15"])
-        .args(["-o", "ServerAliveCountMax=3"]);
-    // Forwards listen on loopback only, so nobody else on this network reaches the machine's
-    // ports; a local port already in use fails the connection instead of only warning.
-    if !forwards.is_empty() {
-        ssh.args(["-o", "ExitOnForwardFailure=yes"]);
-    }
-    for forward in forwards {
-        ssh.arg("-L").arg(format!(
-            "127.0.0.1:{}:localhost:{}",
-            forward.local, forward.remote
-        ));
-    }
+    ssh.args(connection_args(&target, ssh_args, forwards)?);
     // An explicit command gets a terminal only when both ends are one (an interactive program
     // such as `htop`). With output redirected it runs without one, as with plain ssh, so stderr
     // stays separate and line endings are not translated.
@@ -1565,7 +1580,168 @@ async fn delete(api_key: &str, id: &str, yes: bool, json: bool, silent: bool) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{check_ssh_args, load_or_create_key, local_operand, machine_key_dir};
+    use super::{
+        can_prepare_ssh, check_ssh_args, connection_args, load_or_create_key, local_operand,
+        machine_key_dir, remove_sessions_older_than, split_remote, SshTarget,
+    };
+    use crate::cmd::virtual_machines::PortForward;
+    use std::{path::PathBuf, time::Duration};
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("stashbase-vm-{tag}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn target(dir: &std::path::Path) -> SshTarget {
+        let session_dir = dir.join(format!("session-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&session_dir).unwrap();
+        SshTarget {
+            ip: "192.0.2.1".into(),
+            key: dir.join("id_ed25519"),
+            cert_path: session_dir.join("id_ed25519-cert.pub"),
+            known_hosts: session_dir.join("known_hosts"),
+            session_dir,
+        }
+    }
+
+    fn strings(args: Vec<std::ffi::OsString>) -> Vec<String> {
+        args.into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// The value of the first `-o Name=value` for `name`: the one ssh uses.
+    fn first_option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+        args.windows(2).find_map(|pair| {
+            let value = pair[1].strip_prefix(name)?.strip_prefix('=')?;
+            (pair[0] == "-o").then_some(value)
+        })
+    }
+
+    #[test]
+    fn ssh_options_pin_the_issued_host_key() {
+        let dir = scratch("pin");
+        let target = target(&dir);
+        let args = strings(target.options().unwrap());
+        assert_eq!(args[..2], ["-F", "none"], "no ssh config file is read");
+        assert_eq!(first_option(&args, "StrictHostKeyChecking"), Some("yes"));
+        assert_eq!(first_option(&args, "ControlPath"), Some("none"));
+        assert_eq!(first_option(&args, "UpdateHostKeys"), Some("no"));
+        let known_hosts = format!("\"{}\"", target.known_hosts.display());
+        assert_eq!(
+            first_option(&args, "UserKnownHostsFile"),
+            Some(known_hosts.as_str())
+        );
+        let certificate = format!("\"{}\"", target.cert_path.display());
+        assert_eq!(
+            first_option(&args, "CertificateFile"),
+            Some(certificate.as_str())
+        );
+        assert!(target.known_hosts.starts_with(&target.session_dir));
+        assert!(target.cert_path.starts_with(&target.session_dir));
+        drop(target);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn user_keepalive_wins_but_cannot_come_before_the_pin() {
+        let dir = scratch("order");
+        let target = target(&dir);
+        let pinned = target.options().unwrap().len();
+        let args = strings(
+            connection_args(
+                &target,
+                &["-oServerAliveInterval=60".into(), "-v".into()],
+                &[PortForward {
+                    local: 8080,
+                    remote: 3000,
+                }],
+            )
+            .unwrap(),
+        );
+        // The pinned options come first, unchanged; the user's extras right after them.
+        assert_eq!(args[..pinned], strings(target.options().unwrap())[..]);
+        assert_eq!(args[pinned..pinned + 2], ["-oServerAliveInterval=60", "-v"]);
+        // Our keepalive defaults follow, so ssh uses the user's 60, and ours only fill gaps.
+        let ours = args
+            .iter()
+            .position(|a| a == "ServerAliveInterval=15")
+            .unwrap();
+        assert!(ours > pinned + 1);
+        assert_eq!(first_option(&args, "ServerAliveCountMax"), Some("3"));
+        assert_eq!(first_option(&args, "ExitOnForwardFailure"), Some("yes"));
+        assert!(args.ends_with(&["-L".into(), "127.0.0.1:8080:localhost:3000".into()]));
+        drop(target);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn machine_paths_and_local_paths_are_told_apart() {
+        let uuid = "0b9f7c4e-6a3d-4f1e-9c2b-5d8e7f6a1b2c";
+        assert_eq!(
+            split_remote("vm_abc:notes.md"),
+            Some((Some("vm_abc"), "notes.md"))
+        );
+        assert_eq!(
+            split_remote(&format!("{uuid}:/tmp/x")),
+            Some((Some(uuid), "/tmp/x"))
+        );
+        assert_eq!(split_remote(":notes.md"), Some((None, "notes.md")));
+        assert_eq!(split_remote(":"), Some((None, "")));
+        // Local: a drive letter, a colon in a file name, no colon at all.
+        assert_eq!(split_remote("C:\\dir\\file"), None);
+        assert_eq!(split_remote("report:2026.txt"), None);
+        assert_eq!(split_remote("notes.md"), None);
+    }
+
+    #[test]
+    fn each_session_folder_goes_with_its_run_and_stale_ones_are_cleaned_up() {
+        let dir = scratch("sessions");
+        std::fs::write(dir.join("id_ed25519"), "key").unwrap();
+        let first = target(&dir);
+        let second = target(&dir);
+        let first_dir = first.session_dir.clone();
+        assert_ne!(first_dir, second.session_dir);
+        drop(first);
+        assert!(!first_dir.exists(), "a finished run removes its folder");
+        assert!(second.session_dir.exists(), "another run's folder stays");
+
+        // Folders left by runs that never cleaned up: only session and key-generation folders go,
+        // never the key itself.
+        std::fs::create_dir_all(dir.join("keygen-left")).unwrap();
+        let leftover = second.session_dir.clone();
+        std::mem::forget(second);
+        remove_sessions_older_than(&dir, Duration::from_secs(3600));
+        assert!(leftover.exists(), "a recent folder stays");
+        std::thread::sleep(Duration::from_millis(20));
+        remove_sessions_older_than(&dir, Duration::from_millis(1));
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["id_ed25519"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn connect_picks_machines_it_can_start_or_wait_for() {
+        for state in [
+            "running",
+            "stopped",
+            "suspended",
+            "error",
+            "creating",
+            "resuming",
+            "suspending",
+            "stopping",
+        ] {
+            assert!(can_prepare_ssh(state), "{state}");
+        }
+        for state in ["deleting", "deleted", "unknown"] {
+            assert!(!can_prepare_ssh(state), "{state}");
+        }
+    }
 
     #[cfg(unix)]
     #[test]
