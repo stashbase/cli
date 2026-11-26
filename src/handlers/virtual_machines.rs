@@ -308,8 +308,12 @@ async fn create_machine(
                 result = timeout(Duration::from_secs(240), async {
                     loop {
                         virtual_machines::pause(Duration::from_secs(3), json).await?;
-                        let Ok(machines) = virtual_machines::list(api_key, json).await else {
-                            continue;
+                        let machines = match virtual_machines::list(api_key, json).await {
+                            Ok(machines) => machines,
+                            // A dropped request or a server hiccup is retried; a refusal such
+                            // as a revoked key ends the wait at once.
+                            Err(error) if virtual_machines::is_transient(&error) => continue,
+                            Err(error) => return Err(error),
                         };
                         match machines.into_iter().find(|m| m.id == id) {
                             Some(m) if m.state == "creating" => continue,
@@ -906,7 +910,14 @@ async fn resume_when_free(api_key: &str, id: &str, json: bool) -> Result<()> {
 async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machine> {
     timeout(Duration::from_secs(300), async {
         loop {
-            if let Ok(machines) = virtual_machines::list(api_key, json).await {
+            let listed = match virtual_machines::list(api_key, json).await {
+                Ok(machines) => Some(machines),
+                // Retried: no answer, a server error or a rate limit. Anything else (a revoked
+                // key, lost access) ends the wait instead of timing out as "still starting".
+                Err(error) if virtual_machines::is_transient(&error) => None,
+                Err(error) => return Err(error),
+            };
+            if let Some(machines) = listed {
                 match machines
                     .into_iter()
                     .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
@@ -933,7 +944,14 @@ async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machi
 async fn wait_until_settled(api_key: &str, id: &str, json: bool) -> Result<Machine> {
     timeout(Duration::from_secs(300), async {
         loop {
-            if let Ok(machines) = virtual_machines::list(api_key, json).await {
+            let listed = match virtual_machines::list(api_key, json).await {
+                Ok(machines) => Some(machines),
+                // Retried: no answer, a server error or a rate limit. Anything else (a revoked
+                // key, lost access) ends the wait instead of timing out as "still starting".
+                Err(error) if virtual_machines::is_transient(&error) => None,
+                Err(error) => return Err(error),
+            };
+            if let Some(machines) = listed {
                 match machines
                     .into_iter()
                     .find(|m| machine_uuid(&m.id).ok() == machine_uuid(id).ok())
@@ -1153,6 +1171,16 @@ fn check_ssh_args(ssh_args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// A machine that suspends freezes the connection without closing it: `ssh` and `scp` notice
+/// within about 45 seconds instead of hanging. Passed after the pinned options and any user
+/// keepalive, since ssh keeps the first value it sees.
+fn keepalive_defaults() -> Vec<std::ffi::OsString> {
+    ["ServerAliveInterval=15", "ServerAliveCountMax=3"]
+        .into_iter()
+        .flat_map(|option| ["-o".into(), option.into()])
+        .collect()
+}
+
 /// The `ssh` options for `connect`, before the destination: the pinned host key and certificate
 /// first, then the user's allowlisted extras (`check_ssh_args`), then our keepalive defaults and
 /// forwards. ssh keeps the first value of a repeated option, so the extras cannot loosen the pin
@@ -1164,11 +1192,7 @@ fn connection_args(
 ) -> Result<Vec<std::ffi::OsString>> {
     let mut args = target.options()?;
     args.extend(ssh_args.iter().map(Into::into));
-    // A machine that suspends freezes the connection without closing it; notice within about
-    // 45 seconds instead of hanging.
-    for option in ["ServerAliveInterval=15", "ServerAliveCountMax=3"] {
-        args.extend(["-o".into(), option.into()]);
-    }
+    args.extend(keepalive_defaults());
     // Forwards listen on loopback only, so nobody else on this network reaches the machine's
     // ports; a local port already in use fails the connection instead of only warning.
     if !forwards.is_empty() {
@@ -1410,6 +1434,7 @@ async fn cp(
         if let Some(parent) = parent.filter(|p| !p.is_empty()) {
             let _ = Command::new("ssh")
                 .args(target.options()?)
+                .args(keepalive_defaults())
                 .arg(format!("agent@{}", target.ip))
                 .arg(format!("mkdir -p -- {}", shell_quote(parent)))
                 .stdin(std::process::Stdio::null())
@@ -1419,7 +1444,7 @@ async fn cp(
     // Nothing starts after a Ctrl+C during the wait, as with `connect`.
     virtual_machines::ensure_not_aborted(json)?;
     let mut scp = Command::new("scp");
-    scp.args(target.options()?);
+    scp.args(target.options()?).args(keepalive_defaults());
     if recursive {
         scp.arg("-r");
     }

@@ -14,7 +14,7 @@
 #![cfg(unix)]
 
 use std::{
-    io::Read,
+    io::{Read, Write},
     net::TcpListener,
     path::PathBuf,
     process::{Command, Output, Stdio},
@@ -980,4 +980,115 @@ fn ctrl_c_during_vms_create_exits_130_and_warns_to_check_the_list() {
         Reported::NotAsserted,
     );
     assert!(text(&out.stderr).contains("Request aborted"));
+}
+
+/// A fake API on a loopback port that answers each request with the next of
+/// `responses` (raw HTTP), then closes the connection. `None` when the OS
+/// refuses the port.
+fn fake_api(responses: Vec<String>) -> Option<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").ok()?;
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    thread::spawn(move || {
+        let mut responses = responses.into_iter();
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
+            let _ = stream.read(&mut [0u8; 8192]);
+            let Some(response) = responses.next() else {
+                return;
+            };
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    Some(url)
+}
+
+/// A success whose body is cut off: the machine may exist, so the user is told
+/// to check before retrying instead of seeing only a parse error.
+#[test]
+fn vms_create_with_a_cut_off_answer_warns_to_check_the_list() {
+    let Some(url) = fake_api(vec![
+        "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 500\r\nConnection: close\r\n\r\n{\"data\":{\"id\""
+            .to_owned(),
+    ]) else {
+        eprintln!("skipping: cannot bind a loopback port here");
+        return;
+    };
+    let project = Project::new();
+
+    let out = project
+        .command(
+            &["vms", "create", "--location", "eu", "--api-key", "k"],
+            &url,
+        )
+        .output()
+        .unwrap();
+
+    check(
+        "vms create cut off",
+        &out,
+        1,
+        "Check `stashbase vms list` before retrying",
+        Reported::NotAsserted,
+    );
+}
+
+/// A refusal while waiting for a machine (here a revoked key) ends the wait at
+/// once instead of polling until it times out as "still starting".
+#[test]
+fn a_refusal_while_waiting_for_a_vm_stops_the_wait() {
+    let id = "0b9f7c4e-6a3d-4f1e-9c2b-5d8e7f6a1b2c";
+    let json = |status: &str, body: String| {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    };
+    let Some(url) = fake_api(vec![
+        json(
+            "200 OK",
+            format!(r#"{{"data":[{{"id":"{id}","state":"creating"}}]}}"#),
+        ),
+        json(
+            "401 Unauthorized",
+            r#"{"error":{"code":"auth.invalid_api_key","message":"Invalid API key."}}"#.to_owned(),
+        ),
+    ]) else {
+        eprintln!("skipping: cannot bind a loopback port here");
+        return;
+    };
+    let project = Project::new();
+
+    let mut child = project
+        .command(&["vms", "connect", id, "--api-key", "k"], &url)
+        .spawn()
+        .unwrap();
+    let started = Instant::now();
+    let out = loop {
+        if child.try_wait().unwrap().is_some() {
+            break child.wait_with_output().unwrap();
+        }
+        if started.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            panic!("the wait went on after the API refused");
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+
+    check(
+        "vms connect refused while waiting",
+        &out,
+        1,
+        "auth.invalid_api_key",
+        Reported::NotAsserted,
+    );
+    assert!(
+        !text(&out.stderr).contains("still starting"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "the wait went on"
+    );
 }

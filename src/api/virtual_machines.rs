@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     api::client,
-    models::api_client::{ApiError, ApiErrorResponse, OutputError},
+    models::api_client::{ApiError, ApiErrorResponse, GenericOutputError, OutputError},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -169,6 +169,46 @@ impl std::fmt::Display for NoAnswer {
 
 impl std::error::Error for NoAnswer {}
 
+/// The API answered with an error status. Prints only its formatted message, like `NoAnswer`.
+#[derive(Debug)]
+pub struct ApiRefusal {
+    pub status: u16,
+    message: String,
+}
+
+impl std::fmt::Display for ApiRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ApiRefusal {}
+
+/// Worth retrying while waiting on a machine: no answer, or a server error or rate limit. A
+/// refusal such as a revoked key or a machine you no longer have access to is not.
+pub fn is_transient(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<NoAnswer>().is_some()
+        || error
+            .downcast_ref::<ApiRefusal>()
+            .is_some_and(|refusal| refusal.status >= 500 || refusal.status == 429)
+}
+
+/// A success whose body could not be read (the connection dropped mid-answer, or the body is
+/// not what was expected): the request may well have done its work, so it counts as no answer.
+fn unreadable_answer(json_format: bool) -> anyhow::Error {
+    let error = OutputError::Generic(GenericOutputError {
+        code: Some("response.unreadable".to_owned()),
+        message: "The API's answer could not be read.".to_owned(),
+        status: None,
+        hint: None,
+        details: None,
+    });
+    match error.format_error_output(json_format) {
+        Ok(message) => NoAnswer(message).into(),
+        Err(error) => error.into(),
+    }
+}
+
 async fn send<T: serde::de::DeserializeOwned>(
     request: reqwest::RequestBuilder,
     json_format: bool,
@@ -199,12 +239,21 @@ async fn send_and_read<T: serde::de::DeserializeOwned>(
     };
     let status = response.status();
     if status.is_success() {
-        let body: Data<T> = response
-            .json()
-            .await
-            .context("invalid virtual machine response")?;
-        return Ok(body.data);
+        let Ok(bytes) = response.bytes().await else {
+            return Err(unreadable_answer(json_format));
+        };
+        return match serde_json::from_slice::<Data<T>>(&bytes) {
+            Ok(body) => Ok(body.data),
+            Err(_) => Err(unreadable_answer(json_format)),
+        };
     }
+    let refusal = |message: String| -> anyhow::Error {
+        ApiRefusal {
+            status: status.as_u16(),
+            message,
+        }
+        .into()
+    };
     let text = response.text().await.unwrap_or_default();
     if let Ok(mut body) = serde_json::from_str::<ApiErrorResponse>(&text) {
         // The API's message, unless the CLI has a more specific one for this code.
@@ -212,7 +261,7 @@ async fn send_and_read<T: serde::de::DeserializeOwned>(
             body.error.message = Some(message.to_owned());
         }
         let error = OutputError::from(body.error).with_status(Some(status.as_u16()));
-        bail!(error.format_error_output(json_format)?)
+        return Err(refusal(error.format_error_output(json_format)?));
     }
     if let Ok(PlainError { code, message }) = serde_json::from_str::<PlainError>(&text) {
         // Formatted like every other API error, with a readable message for known codes.
@@ -224,9 +273,9 @@ async fn send_and_read<T: serde::de::DeserializeOwned>(
             details: None,
         };
         let error = OutputError::from(error).with_status(Some(status.as_u16()));
-        bail!(error.format_error_output(json_format)?)
+        return Err(refusal(error.format_error_output(json_format)?));
     }
-    bail!("Request failed with status {status}.")
+    Err(refusal(format!("Request failed with status {status}.")))
 }
 
 /// Readable messages for the errors users run into, as in the dashboard. Unknown codes are
@@ -429,7 +478,23 @@ pub async fn certificate(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_body, NoAnswer};
+    use super::{create_body, is_transient, ApiRefusal, NoAnswer};
+
+    #[test]
+    fn only_missing_answers_server_errors_and_rate_limits_are_retried() {
+        let refusal = |status| {
+            anyhow::Error::from(ApiRefusal {
+                status,
+                message: String::new(),
+            })
+        };
+        assert!(is_transient(&anyhow::Error::from(NoAnswer(String::new()))));
+        assert!(is_transient(&refusal(503)));
+        assert!(is_transient(&refusal(429)));
+        assert!(!is_transient(&refusal(401)));
+        assert!(!is_transient(&refusal(404)));
+        assert!(!is_transient(&anyhow::anyhow!("anything else")));
+    }
 
     #[test]
     fn create_never_sends_a_login_key() {
