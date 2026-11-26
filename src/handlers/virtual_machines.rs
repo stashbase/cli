@@ -265,7 +265,7 @@ async fn certificate_when_ready(
     })?
 }
 
-/// Creates a machine and keeps its key locally. The server answers once the machine is recorded
+/// Creates a machine reached only with certificates (no login key). The server answers once the machine is recorded
 /// and keeps creating it in the cloud (about a minute); with `wait`, this follows it until it is
 /// running (`connect` needs that), otherwise it returns the machine while it is being created.
 async fn create_machine(
@@ -1057,8 +1057,7 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
     };
     // Every connection uses a short-lived certificate for this computer's key, issued by the
     // backend for this machine only, and checks the machine's host key against the one it
-    // reported at boot. A machine launched elsewhere (for example from the dashboard without a
-    // key) gets a key made here first.
+    // reported at boot. The local key is made on the first connect to a machine.
     let public_key = load_or_create_key(&dir)?;
     remove_stale_sessions(&dir);
     let session_dir = dir.join(format!("session-{}", uuid::Uuid::new_v4()));
@@ -1385,6 +1384,8 @@ async fn cp(
                 .status();
         }
     }
+    // Nothing starts after a Ctrl+C during the wait, as with `connect`.
+    virtual_machines::ensure_not_aborted(json)?;
     let mut scp = Command::new("scp");
     scp.args(target.options()?);
     if recursive {
