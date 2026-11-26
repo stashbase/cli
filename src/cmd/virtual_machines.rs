@@ -143,9 +143,10 @@ pub struct VirtualMachineConnect {
     #[arg(long)]
     pub no_tmux: bool,
 
-    /// Pass an extra argument to `ssh`, e.g. `--ssh-arg=-v` to debug a connection or
-    /// `--ssh-arg=-oServerAliveInterval=60`. Repeat for more. The machine's host key checks and
-    /// certificate always apply, and the machine only allows local port forwards.
+    /// Pass an extra argument to `ssh`: -v, -vv, -vvv, -q, -C, -4, -6,
+    /// -oServerAliveInterval=<seconds> or -oServerAliveCountMax=<count> (default 15 and 3), e.g.
+    /// `--ssh-arg=-v` to debug a connection. Repeat for more. The machine's host key checks and
+    /// certificate always apply.
     #[arg(long, value_name = "ARG", allow_hyphen_values = true)]
     pub ssh_arg: Vec<String>,
 

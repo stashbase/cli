@@ -121,11 +121,51 @@ fn http_client() -> Result<reqwest::Client> {
         .build()?)
 }
 
+/// True once the user pressed Ctrl+C.
+pub fn aborted() -> bool {
+    crate::REQUEST_ABORTED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+async fn wait_for_abort() {
+    while !aborted() {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+fn aborted_error(json_format: bool) -> anyhow::Error {
+    match OutputError::request_aborted().format_error_output(json_format) {
+        Ok(message) => anyhow::anyhow!(message),
+        Err(error) => error.into(),
+    }
+}
+
+/// Fails once the user pressed Ctrl+C, so nothing more is started after a cancel.
+pub fn ensure_not_aborted(json_format: bool) -> Result<()> {
+    if aborted() {
+        return Err(aborted_error(json_format));
+    }
+    Ok(())
+}
+
+/// Waits between polls, ending early with the cancel error when the user presses Ctrl+C.
+pub async fn pause(duration: Duration, json_format: bool) -> Result<()> {
+    tokio::select! {
+        _ = tokio::time::sleep(duration) => Ok(()),
+        _ = wait_for_abort() => Err(aborted_error(json_format)),
+    }
+}
+
 async fn send<T: serde::de::DeserializeOwned>(
     request: reqwest::RequestBuilder,
     json_format: bool,
 ) -> Result<T> {
-    let response = match request.send().await {
+    // Like the rest of the CLI: no request starts after Ctrl+C, and one in flight is dropped.
+    ensure_not_aborted(json_format)?;
+    let sent = tokio::select! {
+        sent = request.send() => sent,
+        _ = wait_for_abort() => return Err(aborted_error(json_format)),
+    };
+    let response = match sent {
         Ok(response) => response,
         Err(error) => {
             let output_error = if error.is_timeout() {

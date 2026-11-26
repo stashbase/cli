@@ -177,33 +177,56 @@ fn validate_id(id: &str) -> Result<()> {
     machine_uuid(id).map(|_| ())
 }
 
-/// Generates a throwaway ed25519 key with the user's own `ssh-keygen`.
-fn generate_key(dir: &Path) -> Result<String> {
-    fs::create_dir_all(dir)?;
+/// This computer's key for a machine, made with the user's own `ssh-keygen` on first use.
+/// Concurrent first connections agree on one key: each generates into its own folder and the
+/// first to link its key into place wins; the public key is always read from the key in place.
+fn load_or_create_key(dir: &Path) -> Result<String> {
     let key = dir.join("id_ed25519");
-    let status = Command::new("ssh-keygen")
-        .args([
-            "-q",
-            "-t",
-            "ed25519",
-            "-N",
-            "",
-            "-C",
-            "stashbase-virtual-machine",
-            "-f",
-        ])
-        .arg(&key)
-        .status()
-        .context("`ssh-keygen` was not found on this machine.")?;
-    if !status.success() {
-        bail!("ssh-keygen failed.");
+    if !key.is_file() {
+        let staging = dir.join(format!("keygen-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&staging)?;
+        let staged = staging.join("id_ed25519");
+        let generated = Command::new("ssh-keygen")
+            .args([
+                "-q",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-C",
+                "stashbase-virtual-machine",
+                "-f",
+            ])
+            .arg(&staged)
+            .stdin(std::process::Stdio::null())
+            .status()
+            .context("`ssh-keygen` was not found on this machine.")
+            .and_then(|status| {
+                if !status.success() {
+                    bail!("ssh-keygen failed.");
+                }
+                match fs::hard_link(&staged, &key) {
+                    Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => {
+                        Err(error).context("Could not save this computer's key for the machine.")
+                    }
+                    _ => Ok(()),
+                }
+            });
+        let _ = fs::remove_dir_all(&staging);
+        generated?;
     }
-    let public = fs::read_to_string(dir.join("id_ed25519.pub"))?;
+    let output = Command::new("ssh-keygen")
+        .args(["-y", "-f"])
+        .arg(&key)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .context("`ssh-keygen` was not found on this machine.")?;
+    let public = String::from_utf8_lossy(&output.stdout);
     // Send only "<type> <base64>"; the server rejects options and comments.
     let mut parts = public.split_whitespace();
-    match (parts.next(), parts.next()) {
-        (Some(kind), Some(data)) => Ok(format!("{kind} {data}")),
-        _ => bail!("Could not read the generated public key."),
+    match (output.status.success(), parts.next(), parts.next()) {
+        (true, Some(kind), Some(data)) => Ok(format!("{kind} {data}")),
+        _ => bail!("Could not read this computer's key for the machine."),
     }
 }
 
@@ -227,7 +250,7 @@ async fn certificate_when_ready(
                             Streams::Stderr,
                         ));
                     }
-                    sleep(Duration::from_secs(5)).await;
+                    virtual_machines::pause(Duration::from_secs(5), json).await?;
                 }
                 result => return result,
             }
@@ -242,17 +265,6 @@ async fn certificate_when_ready(
     })?
 }
 
-/// The `<type> <base64>` public key of the key pair in `dir`.
-fn read_public_key(dir: &Path) -> Result<String> {
-    let public = fs::read_to_string(dir.join("id_ed25519.pub"))
-        .context("Could not read this computer's key for the machine.")?;
-    let mut parts = public.split_whitespace();
-    match (parts.next(), parts.next()) {
-        (Some(kind), Some(data)) => Ok(format!("{kind} {data}")),
-        _ => bail!("Could not read this computer's key for the machine."),
-    }
-}
-
 /// Creates a machine and keeps its key locally. The server answers once the machine is recorded
 /// and keeps creating it in the cloud (about a minute); with `wait`, this follows it until it is
 /// running (`connect` needs that), otherwise it returns the machine while it is being created.
@@ -264,18 +276,17 @@ async fn create_machine(
     json: bool,
     silent: bool,
 ) -> Result<Machine> {
-    let keys = keys_dir()?;
-    let pending = keys.join(format!("pending-{}", uuid::Uuid::new_v4()));
-    // The key is only ever used with short-lived certificates, so the machine is created without
-    // it: no `authorized_keys` entry outlives a revoked API key or a disabled 2FA. The key is
-    // made now so the first connect does not have to.
-    generate_key(&pending)?;
+    // The machine gets no login key: it is reached only with short-lived certificates, so no
+    // `authorized_keys` entry outlives a revoked API key or a disabled 2FA. The local key is made
+    // on the first connect, so creating needs no local SSH tools.
     let mut spinner =
         (!silent && !json).then(|| new_spinner("Creating the virtual machine...", Streams::Stderr));
     let mut result = virtual_machines::create(api_key, location, name, json)
         .await
         .map_err(|error| {
-            if error.downcast_ref::<reqwest::Error>().is_some() {
+            // A lost answer or a Ctrl+C mid-request: the server may have recorded the machine
+            // anyway, and a blind retry could make a second one.
+            if error.downcast_ref::<reqwest::Error>().is_some() || virtual_machines::aborted() {
                 error.context(
                     "Could not confirm whether the virtual machine was created. Check `stashbase vms list` before retrying.",
                 )
@@ -283,10 +294,6 @@ async fn create_machine(
                 error
             }
         });
-    // The key belongs to the machine as soon as it is recorded.
-    if let Ok(machine) = &result {
-        fs::rename(&pending, machine_key_dir(&machine.id)?)?;
-    }
     if wait {
         if let Ok(created) = &result {
             if created.state == "creating"
@@ -295,7 +302,7 @@ async fn create_machine(
                 let id = created.id.clone();
                 result = timeout(Duration::from_secs(240), async {
                     loop {
-                        sleep(Duration::from_secs(3)).await;
+                        virtual_machines::pause(Duration::from_secs(3), json).await?;
                         let Ok(machines) = virtual_machines::list(api_key, json).await else {
                             continue;
                         };
@@ -324,13 +331,7 @@ async fn create_machine(
     if let Some(mut spinner) = spinner.take() {
         spinner.clear();
     }
-    match result {
-        Ok(machine) => Ok(machine),
-        Err(error) => {
-            let _ = fs::remove_dir_all(&pending);
-            Err(error)
-        }
-    }
+    result
 }
 
 async fn create(
@@ -351,7 +352,8 @@ async fn create(
     let name = match name {
         Some(name) => Some(name.trim()).filter(|n| !n.is_empty()),
         None if interactive => {
-            asked = input_optional("Name (optional, press Enter to skip)");
+            asked = input_optional("Name (optional, press Enter to skip)")
+                .ok_or_else(|| anyhow::anyhow!("Cancelled."))?;
             Some(asked.trim()).filter(|n| !n.is_empty())
         }
         None => None,
@@ -846,6 +848,7 @@ async fn pick_or_create(
 }
 
 async fn run(api_key: &str, args: VirtualMachineConnect, json: bool, silent: bool) -> Result<()> {
+    check_ssh_args(&args.ssh_arg)?;
     let id = match args.id {
         Some(id) => id,
         None => pick_or_create(api_key, args.location.as_deref(), json, silent).await?,
@@ -875,7 +878,7 @@ async fn resume_when_free(api_key: &str, id: &str, json: bool) -> Result<()> {
                 if format!("{error:#}").contains("virtual_machine_busy")
                     && std::time::Instant::now() < deadline =>
             {
-                sleep(Duration::from_secs(5)).await;
+                virtual_machines::pause(Duration::from_secs(5), json).await?;
             }
             result => return result.map(|_| ()),
         }
@@ -903,7 +906,7 @@ async fn wait_until_running(api_key: &str, id: &str, json: bool) -> Result<Machi
                     None => return Err(virtual_machines::not_found(json)),
                 }
             }
-            sleep(Duration::from_secs(3)).await;
+            virtual_machines::pause(Duration::from_secs(3), json).await?;
         }
     })
     .await
@@ -924,7 +927,7 @@ async fn wait_until_settled(api_key: &str, id: &str, json: bool) -> Result<Machi
                     None => return Err(virtual_machines::not_found(json)),
                 }
             }
-            sleep(Duration::from_secs(3)).await;
+            virtual_machines::pause(Duration::from_secs(3), json).await?;
         }
     })
     .await
@@ -1056,11 +1059,7 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
     // backend for this machine only, and checks the machine's host key against the one it
     // reported at boot. A machine launched elsewhere (for example from the dashboard without a
     // key) gets a key made here first.
-    let had_key = key.is_file();
-    if !had_key {
-        generate_key(&dir)?;
-    }
-    let public_key = read_public_key(&dir)?;
+    let public_key = load_or_create_key(&dir)?;
     remove_stale_sessions(&dir);
     let session_dir = dir.join(format!("session-{}", uuid::Uuid::new_v4()));
     let cert_path = session_dir.join("id_ed25519-cert.pub");
@@ -1068,9 +1067,7 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
     let issued = match certificate_when_ready(api_key, id, &public_key, json, silent).await {
         Ok(issued) => issued,
         Err(error) => {
-            if !had_key {
-                let _ = fs::remove_dir_all(&dir);
-            }
+            // The key stays: another run may be using it, and the next connect reuses it.
             if format!("{error:#}").contains("host_key_unavailable") {
                 bail!("The machine has not reported its host key yet. It is probably still starting; try again in a minute.");
             }
@@ -1092,8 +1089,8 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
     })
 }
 
-/// Removes session folders left by runs that exited without cleaning up (an exit code passed
-/// through from ssh, a crash). Their certificates expired long ago. Best effort.
+/// Removes session and key-generation folders left by runs that exited without cleaning up (an
+/// exit code passed through from ssh, a crash). Their certificates expired long ago. Best effort.
 fn remove_stale_sessions(dir: &Path) {
     let hour = Duration::from_secs(60 * 60);
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -1103,19 +1100,36 @@ fn remove_stale_sessions(dir: &Path) {
             .ok()
             .and_then(|time| time.elapsed().ok())
             .is_some_and(|age| age > hour);
-        if old && entry.file_name().to_string_lossy().starts_with("session-") {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if old && (name.starts_with("session-") || name.starts_with("keygen-")) {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
 }
 
-/// Rejects `--ssh-arg` values that would replace the trust sources the pinned host key relies
-/// on: another config file, or a `KnownHostsCommand`. Other repeated options lose to ours,
-/// because ssh keeps the first value it sees.
+/// Accepts only `--ssh-arg` values known to leave the pinned host key and the certificate alone:
+/// verbosity, quiet, compression, address family, and the keepalive settings. A denylist misses
+/// grouped short options (`-vF file` sets a config file), so anything else is refused.
 fn check_ssh_args(ssh_args: &[String]) -> Result<()> {
     for arg in ssh_args {
-        if arg.starts_with("-F") || arg.to_ascii_lowercase().contains("knownhostscommand") {
-            bail!("`--ssh-arg={arg}` is not allowed: the machine's host key is always checked against the key Stashbase issued.");
+        let flag = matches!(
+            arg.as_str(),
+            "-v" | "-vv" | "-vvv" | "-q" | "-C" | "-4" | "-6"
+        );
+        let keepalive = arg
+            .strip_prefix("-o")
+            .and_then(|option| option.split_once('='))
+            .is_some_and(|(name, value)| {
+                (name.eq_ignore_ascii_case("ServerAliveInterval")
+                    || name.eq_ignore_ascii_case("ServerAliveCountMax"))
+                    && value.parse::<u32>().is_ok()
+                    && value.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        if !flag && !keepalive {
+            bail!(
+                "`--ssh-arg={arg}` is not supported. Allowed: -v, -vv, -vvv, -q, -C, -4, -6, \
+                 -oServerAliveInterval=<seconds> and -oServerAliveCountMax=<count>."
+            );
         }
     }
     Ok(())
@@ -1135,10 +1149,12 @@ async fn connect(
     json: bool,
     silent: bool,
 ) -> Result<()> {
-    check_ssh_args(ssh_args)?;
     let target = prepare_ssh(api_key, id, json, silent).await?;
     let mut ssh = Command::new("ssh");
+    // The extra arguments are allowlisted (`check_ssh_args`), so they can come before our
+    // keepalive defaults: ssh keeps the first value, and a user's keepalive wins.
     ssh.args(target.options()?)
+        .args(ssh_args)
         // A machine that suspends freezes the connection without closing it; notice within about
         // 45 seconds instead of hanging.
         .args(["-o", "ServerAliveInterval=15"])
@@ -1154,10 +1170,6 @@ async fn connect(
             forward.local, forward.remote
         ));
     }
-    // After ours: for a repeated option ssh keeps the first value, so these cannot loosen the
-    // host key checks or swap the certificate, and the machine's sshd refuses agent and remote
-    // forwarding whatever is asked.
-    ssh.args(ssh_args);
     if !command.is_empty() && std::io::stdin().is_terminal() {
         ssh.arg("-t");
     }
@@ -1230,6 +1242,9 @@ async fn connect(
             }
         })
     });
+    // Nothing starts after a Ctrl+C during the wait, not even the ssh session it led up to.
+    virtual_machines::ensure_not_aborted(json)?;
+    let saved_terminal = save_terminal();
     // ssh runs on a blocking thread so the pings above keep running meanwhile.
     let status = tokio::task::spawn_blocking(move || ssh.status())
         .await
@@ -1247,7 +1262,7 @@ async fn connect(
         libc::signal(libc::SIGINT, previous_sigint);
     }
     let status = status.context("`ssh` was not found on this machine.")?;
-    restore_terminal();
+    restore_terminal(saved_terminal.as_deref());
     if keep_awake_ended && !silent && !json {
         if let Some(limit) = keep_awake {
             eprintln!(
@@ -1403,24 +1418,48 @@ const KEEP_AWAKE_INTERVAL: Duration = if cfg!(debug_assertions) {
     Duration::from_secs(300)
 };
 
-/// Puts the local terminal back to normal after ssh ends. Programs on the machine (tmux, agents)
-/// switch modes on (hidden cursor, mouse reporting, the alternate screen, focus reports) and only
-/// switch them off when they exit cleanly; a dropped connection leaves them on.
-fn restore_terminal() {
-    use std::io::{IsTerminal, Write};
-    let mut out = std::io::stdout();
-    if !out.is_terminal() {
-        return;
+/// The terminal's settings (`stty -g`) before ssh runs, when this is an interactive terminal.
+fn save_terminal() -> Option<String> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return None;
     }
+    #[cfg(unix)]
+    {
+        let output = Command::new("stty")
+            .arg("-g")
+            .stdin(std::process::Stdio::inherit())
+            .output()
+            .ok()?;
+        let saved = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+        (output.status.success() && !saved.is_empty()).then_some(saved)
+    }
+    #[cfg(not(unix))]
+    Some(String::new())
+}
+
+/// Puts the local terminal back the way it was after ssh ends. Programs on the machine (tmux,
+/// agents) switch modes on (hidden cursor, mouse reporting, the alternate screen, focus reports)
+/// and only switch them off when they exit cleanly; a dropped connection leaves them on. Only
+/// for an interactive terminal (`saved` from `save_terminal`); the user's own settings are
+/// restored, not reset.
+fn restore_terminal(saved: Option<&str>) {
+    use std::io::Write;
+    let Some(saved) = saved else { return };
+    let mut out = std::io::stdout();
     let _ = out.write_all(
         b"\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m",
     );
     let _ = out.flush();
+    #[cfg(not(unix))]
+    let _ = saved;
     #[cfg(unix)]
-    let _ = Command::new("stty")
-        .arg("sane")
-        .stdin(std::process::Stdio::inherit())
-        .status();
+    if !saved.is_empty() {
+        let _ = Command::new("stty")
+            .arg(saved)
+            .stdin(std::process::Stdio::inherit())
+            .status();
+    }
 }
 
 async fn start(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()> {
@@ -1508,7 +1547,31 @@ async fn delete(api_key: &str, id: &str, yes: bool, json: bool, silent: bool) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{check_ssh_args, local_operand, machine_key_dir};
+    use super::{check_ssh_args, load_or_create_key, local_operand, machine_key_dir};
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_first_connections_share_one_key() {
+        let dir = std::env::temp_dir().join(format!("stashbase-vm-key-{}", uuid::Uuid::new_v4()));
+        let keys: Vec<String> = (0..4)
+            .map(|_| {
+                let dir = dir.clone();
+                std::thread::spawn(move || load_or_create_key(&dir).unwrap())
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert!(keys.iter().all(|key| key == &keys[0]), "{keys:?}");
+        assert!(keys[0].starts_with("ssh-ed25519 "));
+        // Only the key itself is left; every staging folder is gone.
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["id_ed25519"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn local_scp_operands_are_explicit_paths() {
@@ -1524,6 +1587,9 @@ mod tests {
         assert!(check_ssh_args(&["-F".into()]).is_err());
         assert!(check_ssh_args(&["-F/tmp/config".into()]).is_err());
         assert!(check_ssh_args(&["-oKnownHostsCommand=/bin/echo".into()]).is_err());
+        assert!(check_ssh_args(&["-vF/tmp/config".into()]).is_err());
+        assert!(check_ssh_args(&["-oServerAliveInterval=-1".into()]).is_err());
+        assert!(check_ssh_args(&["-oserveraliveinterval=60".into()]).is_ok());
     }
 
     #[test]
