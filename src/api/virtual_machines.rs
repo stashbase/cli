@@ -237,14 +237,14 @@ fn url(path: &str) -> String {
     format!("{}/v1/virtual-machines{}", client::get_api_url(), path)
 }
 
+/// Creates a machine without a login key: it is reached only with certificates from `certificate`.
 pub async fn create(
     api_key: &str,
-    ssh_public_key: &str,
     location: &str,
     name: Option<&str>,
     json: bool,
 ) -> Result<Machine> {
-    let mut body = serde_json::json!({ "ssh_public_key": ssh_public_key, "location": location });
+    let mut body = serde_json::json!({ "ssh_public_key": "", "location": location });
     if let Some(name) = name {
         body["name"] = name.into();
     }

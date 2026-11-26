@@ -266,10 +266,13 @@ async fn create_machine(
 ) -> Result<Machine> {
     let keys = keys_dir()?;
     let pending = keys.join(format!("pending-{}", uuid::Uuid::new_v4()));
-    let public_key = generate_key(&pending)?;
+    // The key is only ever used with short-lived certificates, so the machine is created without
+    // it: no `authorized_keys` entry outlives a revoked API key or a disabled 2FA. The key is
+    // made now so the first connect does not have to.
+    generate_key(&pending)?;
     let mut spinner =
         (!silent && !json).then(|| new_spinner("Creating the virtual machine...", Streams::Stderr));
-    let mut result = virtual_machines::create(api_key, &public_key, location, name, json)
+    let mut result = virtual_machines::create(api_key, location, name, json)
         .await
         .map_err(|error| {
             if error.downcast_ref::<reqwest::Error>().is_some() {
@@ -787,7 +790,21 @@ async fn pick_or_create(
     // A machine without a key from this CLI gets one added when you connect.
     let usable: Vec<Machine> = machines
         .into_iter()
-        .filter(|m| matches!(m.state.as_str(), "running" | "stopped" | "suspended"))
+        // Everything `prepare_ssh` can start or wait for, so a machine that is busy for a moment
+        // is still connected to rather than a second one created.
+        .filter(|m| {
+            matches!(
+                m.state.as_str(),
+                "running"
+                    | "stopped"
+                    | "suspended"
+                    | "error"
+                    | "creating"
+                    | "resuming"
+                    | "suspending"
+                    | "stopping"
+            )
+        })
         .collect();
     // Most members have one machine: use it without asking. `vms create` makes another.
     if let [only] = usable.as_slice() {
@@ -923,12 +940,28 @@ struct SshTarget {
     key: PathBuf,
     cert_path: PathBuf,
     known_hosts: PathBuf,
+    /// This invocation's own folder for the certificate and pinned host key, so concurrent
+    /// `connect` and `cp` runs never read a file another one is rewriting. Removed on drop.
+    session_dir: PathBuf,
+}
+
+impl Drop for SshTarget {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.session_dir);
+    }
 }
 
 impl SshTarget {
     /// Options shared by `ssh` and `scp`.
     fn options(&self) -> Result<Vec<std::ffi::OsString>> {
-        let mut options: Vec<std::ffi::OsString> = vec!["-i".into(), self.key.clone().into()];
+        // No config files: a `KnownHostsCommand` or other trust source from the user's or the
+        // system's ssh config must not stand in for the host key the API issued.
+        let mut options: Vec<std::ffi::OsString> = vec![
+            "-F".into(),
+            "none".into(),
+            "-i".into(),
+            self.key.clone().into(),
+        ];
         for option in [
             "IdentitiesOnly=yes".to_string(),
             "LogLevel=ERROR".to_string(),
@@ -1028,8 +1061,10 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
         generate_key(&dir)?;
     }
     let public_key = read_public_key(&dir)?;
-    let cert_path = dir.join("id_ed25519-cert.pub");
-    let known_hosts = dir.join("known_hosts");
+    remove_stale_sessions(&dir);
+    let session_dir = dir.join(format!("session-{}", uuid::Uuid::new_v4()));
+    let cert_path = session_dir.join("id_ed25519-cert.pub");
+    let known_hosts = session_dir.join("known_hosts");
     let issued = match certificate_when_ready(api_key, id, &public_key, json, silent).await {
         Ok(issued) => issued,
         Err(error) => {
@@ -1042,6 +1077,7 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
             return Err(error);
         }
     };
+    fs::create_dir_all(&session_dir)?;
     fs::write(&cert_path, format!("{}\n", issued.certificate.trim()))?;
     fs::write(
         &known_hosts,
@@ -1052,7 +1088,37 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
         key,
         cert_path,
         known_hosts,
+        session_dir,
     })
+}
+
+/// Removes session folders left by runs that exited without cleaning up (an exit code passed
+/// through from ssh, a crash). Their certificates expired long ago. Best effort.
+fn remove_stale_sessions(dir: &Path) {
+    let hour = Duration::from_secs(60 * 60);
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|time| time.elapsed().ok())
+            .is_some_and(|age| age > hour);
+        if old && entry.file_name().to_string_lossy().starts_with("session-") {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Rejects `--ssh-arg` values that would replace the trust sources the pinned host key relies
+/// on: another config file, or a `KnownHostsCommand`. Other repeated options lose to ours,
+/// because ssh keeps the first value it sees.
+fn check_ssh_args(ssh_args: &[String]) -> Result<()> {
+    for arg in ssh_args {
+        if arg.starts_with("-F") || arg.to_ascii_lowercase().contains("knownhostscommand") {
+            bail!("`--ssh-arg={arg}` is not allowed: the machine's host key is always checked against the key Stashbase issued.");
+        }
+    }
+    Ok(())
 }
 
 /// Starts the machine if it is stopped (resumes it if suspended), then opens an interactive shell, or
@@ -1069,6 +1135,7 @@ async fn connect(
     json: bool,
     silent: bool,
 ) -> Result<()> {
+    check_ssh_args(ssh_args)?;
     let target = prepare_ssh(api_key, id, json, silent).await?;
     let mut ssh = Command::new("ssh");
     ssh.args(target.options()?)
@@ -1215,6 +1282,16 @@ fn split_remote(arg: &str) -> Option<(Option<&str>, &str)> {
     (id.starts_with("vm_") || uuid::Uuid::parse_str(id).is_ok()).then_some((Some(id), path))
 }
 
+/// A local `scp` operand that scp cannot mistake for `host:path`: a relative path gets `./` in
+/// front, since scp only looks for a host before the first `/`.
+fn local_operand(path: &str) -> std::ffi::OsString {
+    if Path::new(path).is_absolute() || path.starts_with("./") || path.starts_with("../") {
+        path.into()
+    } else {
+        Path::new(".").join(path).into_os_string()
+    }
+}
+
 /// The machine `:path` means: the one you pick in a terminal, even when you have only one, so
 /// files never go somewhere you did not choose. Scripts must name the machine (`ID:path`).
 async fn pick_existing(api_key: &str, json: bool) -> Result<String> {
@@ -1301,10 +1378,13 @@ async fn cp(
     if silent || json {
         scp.arg("-q");
     }
+    // The local side is passed as an explicit path, so scp never reads `a:b` as a host or
+    // `-x` as an option.
+    scp.arg("--");
     if upload {
-        scp.arg(source).arg(&remote);
+        scp.arg(local_operand(source)).arg(&remote);
     } else {
-        scp.arg(&remote).arg(destination);
+        scp.arg(&remote).arg(local_operand(destination));
     }
     let status = scp
         .status()
@@ -1428,7 +1508,23 @@ async fn delete(api_key: &str, id: &str, yes: bool, json: bool, silent: bool) ->
 
 #[cfg(test)]
 mod tests {
-    use super::machine_key_dir;
+    use super::{check_ssh_args, local_operand, machine_key_dir};
+
+    #[test]
+    fn local_scp_operands_are_explicit_paths() {
+        assert_eq!(local_operand("report:2026.txt"), "./report:2026.txt");
+        assert_eq!(local_operand("-rf"), "./-rf");
+        assert_eq!(local_operand("../out"), "../out");
+        assert_eq!(local_operand("/tmp/a:b"), "/tmp/a:b");
+    }
+
+    #[test]
+    fn ssh_args_cannot_replace_host_key_trust() {
+        assert!(check_ssh_args(&["-v".into(), "-oServerAliveInterval=60".into()]).is_ok());
+        assert!(check_ssh_args(&["-F".into()]).is_err());
+        assert!(check_ssh_args(&["-F/tmp/config".into()]).is_err());
+        assert!(check_ssh_args(&["-oKnownHostsCommand=/bin/echo".into()]).is_err());
+    }
 
     #[test]
     fn public_and_full_machine_ids_share_the_ssh_directory() {
