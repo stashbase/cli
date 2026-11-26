@@ -847,8 +847,14 @@ fn sandbox_command_with_filesystem_policy(
     #[cfg(target_os = "linux")]
     {
         if sandbox {
-            if let Some(error) = systemd_filesystem_enforcement_error() {
+            if let Some(error) = systemd_network_enforcement_error() {
                 anyhow::bail!(error);
+            }
+            // The network boundary needs systemd, so its filesystem rules can't move to bubblewrap.
+            if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
+                if let Some(error) = systemd_filesystem_enforcement_error() {
+                    anyhow::bail!(error);
+                }
             }
         }
         if !sandbox
@@ -1109,7 +1115,7 @@ pub(crate) fn network_enforcement_error() -> Option<String> {
         if let Some(error) = wsl_interop_error() {
             return Some(error);
         }
-        if let Some(error) = systemd_filesystem_enforcement_error() {
+        if let Some(error) = systemd_network_enforcement_error() {
             return Some(format!(
                 "network containment requires a working `systemd-run --user`: {error}"
             ));
@@ -1289,11 +1295,26 @@ fn systemd_command(
 
 #[cfg(target_os = "linux")]
 fn systemd_filesystem_enforcement_error() -> Option<String> {
+    // The probe has to use a filesystem property too. A scope unit may accept none of them
+    // (`Unknown assignment: InaccessiblePaths=`), so without one this reports "available" on a
+    // machine where the real run then fails, and bubblewrap is never tried.
+    systemd_scope_probe_error("--property=InaccessiblePaths=-/nonexistent-stashbase-probe")
+}
+
+/// Checks that a user scope accepts the IP rules of the network boundary, separately from
+/// the filesystem properties: a host can enforce one without the other.
+#[cfg(target_os = "linux")]
+fn systemd_network_enforcement_error() -> Option<String> {
+    systemd_scope_probe_error("--property=IPAddressDeny=any")
+}
+
+#[cfg(target_os = "linux")]
+fn systemd_scope_probe_error(property: &str) -> Option<String> {
     if !command_in_path("systemd-run") {
         return Some("systemd-run is not available".to_owned());
     }
     let probe = std::process::Command::new("systemd-run")
-        .args(["--user", "--scope", "--quiet", "--", "/bin/true"])
+        .args(["--user", "--scope", "--quiet", property, "--", "/bin/true"])
         .output();
     match probe {
         Ok(output) if output.status.success() => None,
