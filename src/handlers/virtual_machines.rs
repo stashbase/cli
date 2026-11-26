@@ -285,11 +285,16 @@ async fn create_machine(
         .await
         .map_err(|error| {
             // A lost answer or a Ctrl+C mid-request: the server may have recorded the machine
-            // anyway, and a blind retry could make a second one.
-            if error.downcast_ref::<reqwest::Error>().is_some() || virtual_machines::aborted() {
-                error.context(
-                    "Could not confirm whether the virtual machine was created. Check `stashbase vms list` before retrying.",
-                )
+            // anyway, and a blind retry could make a second one. On a Ctrl+C the CLI prints only
+            // "Request aborted", so the warning is printed here. `--json` keeps its one document.
+            const UNCONFIRMED: &str = "Could not confirm whether the virtual machine was created. Check `stashbase vms list` before retrying.";
+            if json {
+                error
+            } else if virtual_machines::aborted() {
+                eprintln!("{UNCONFIRMED}");
+                error
+            } else if error.downcast_ref::<virtual_machines::NoAnswer>().is_some() {
+                error.context(UNCONFIRMED)
             } else {
                 error
             }
@@ -880,6 +885,15 @@ async fn resume_when_free(api_key: &str, id: &str, json: bool) -> Result<()> {
             {
                 virtual_machines::pause(Duration::from_secs(5), json).await?;
             }
+            // Another `connect` or `cp` resumed it first: follow that start instead of failing.
+            Err(error) if format!("{error:#}").contains("invalid_virtual_machine_state") => {
+                let machines = virtual_machines::list(api_key, json).await?;
+                let started = machines.iter().any(|m| {
+                    machine_uuid(&m.id).ok() == machine_uuid(id).ok()
+                        && matches!(m.state.as_str(), "resuming" | "running")
+                });
+                return if started { Ok(()) } else { Err(error) };
+            }
             result => return result.map(|_| ()),
         }
     }
@@ -1169,7 +1183,10 @@ async fn connect(
             forward.local, forward.remote
         ));
     }
-    if !command.is_empty() && std::io::stdin().is_terminal() {
+    // An explicit command gets a terminal only when both ends are one (an interactive program
+    // such as `htop`). With output redirected it runs without one, as with plain ssh, so stderr
+    // stays separate and line endings are not translated.
+    if !command.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
         ssh.arg("-t");
     }
     ssh.arg(format!("agent@{}", target.ip));

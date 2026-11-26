@@ -155,17 +155,38 @@ pub async fn pause(duration: Duration, json_format: bool) -> Result<()> {
     }
 }
 
+/// The request got no answer (timeout or no connection). Callers can tell it from a refusal
+/// by type; it prints only its formatted message, with no cause chain, so `--json` output stays
+/// one JSON document.
+#[derive(Debug)]
+pub struct NoAnswer(String);
+
+impl std::fmt::Display for NoAnswer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NoAnswer {}
+
 async fn send<T: serde::de::DeserializeOwned>(
     request: reqwest::RequestBuilder,
     json_format: bool,
 ) -> Result<T> {
-    // Like the rest of the CLI: no request starts after Ctrl+C, and one in flight is dropped.
+    // Like the rest of the CLI: no request starts after Ctrl+C, and one in flight is dropped,
+    // including while its body is still being read.
     ensure_not_aborted(json_format)?;
-    let sent = tokio::select! {
-        sent = request.send() => sent,
-        _ = wait_for_abort() => return Err(aborted_error(json_format)),
-    };
-    let response = match sent {
+    tokio::select! {
+        result = send_and_read(request, json_format) => result,
+        _ = wait_for_abort() => Err(aborted_error(json_format)),
+    }
+}
+
+async fn send_and_read<T: serde::de::DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+    json_format: bool,
+) -> Result<T> {
+    let response = match request.send().await {
         Ok(response) => response,
         Err(error) => {
             let output_error = if error.is_timeout() {
@@ -173,10 +194,7 @@ async fn send<T: serde::de::DeserializeOwned>(
             } else {
                 OutputError::cannot_connect()
             };
-            // The network error stays underneath, so callers can tell "no answer" from a refusal.
-            return Err(
-                anyhow::Error::new(error).context(output_error.format_error_output(json_format)?)
-            );
+            return Err(NoAnswer(output_error.format_error_output(json_format)?).into());
         }
     };
     let status = response.status();
@@ -400,4 +418,17 @@ pub async fn certificate(
         json,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NoAnswer;
+
+    #[test]
+    fn a_missing_answer_prints_only_its_message() {
+        let json = r#"{"error":{"code":"request.timed_out"}}"#;
+        let error = anyhow::Error::from(NoAnswer(json.to_owned()));
+        assert_eq!(format!("{error:?}"), json);
+        assert!(error.downcast_ref::<NoAnswer>().is_some());
+    }
 }
