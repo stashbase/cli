@@ -10,6 +10,8 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+
+use crate::models::api_client::{GenericOutputError, OutputError};
 use directories::ProjectDirs;
 use tabled::Tabled;
 use tokio::time::{sleep, timeout};
@@ -39,12 +41,66 @@ pub async fn handle_virtual_machine_command(
     run_command(cmd, api_key, json, silent)
         .await
         .map_err(|error| {
-            if json {
+            if !crate::exit::needs_printing(&error) {
                 error
+            } else if json {
+                json_error(error)
             } else {
-                anyhow::anyhow!("\n{error}")
+                anyhow::anyhow!("\n{}", error_text(&error))
             }
         })
+}
+
+/// The error's messages from outermost to innermost, leaving out the network library's own
+/// errors (their text is noise; the CLI's message above them says what happened).
+fn error_messages(error: &anyhow::Error) -> Vec<String> {
+    error
+        .chain()
+        .filter(|cause| cause.downcast_ref::<reqwest::Error>().is_none())
+        .map(|cause| cause.to_string())
+        .collect()
+}
+
+fn error_text(error: &anyhow::Error) -> String {
+    error_messages(error).join(": ")
+}
+
+/// A JSON document already formatted by the API layer (possibly colored), parsed back.
+fn parse_json_document(text: &str) -> Option<serde_json::Value> {
+    let plain = dialoguer::console::strip_ansi_codes(text);
+    serde_json::from_str::<serde_json::Value>(plain.trim())
+        .ok()
+        .filter(serde_json::Value::is_object)
+}
+
+/// `--json` prints one JSON document per error. An API error already is one; anything else
+/// (a local check, or a message added on top of an API error) becomes one, with the API's own
+/// document kept under `details`.
+fn json_error(error: anyhow::Error) -> anyhow::Error {
+    let messages = error_messages(&error);
+    if messages.len() == 1 && parse_json_document(&messages[0]).is_some() {
+        return error;
+    }
+    let mut text = Vec::new();
+    let mut details = None;
+    for message in messages {
+        match parse_json_document(&message) {
+            Some(document) if details.is_none() => details = Some(document),
+            Some(_) => {}
+            None => text.push(message),
+        }
+    }
+    let output = OutputError::Generic(GenericOutputError {
+        code: Some("vm.error".to_owned()),
+        message: text.join(": "),
+        status: None,
+        hint: None,
+        details,
+    });
+    match output.format_error_output(true) {
+        Ok(document) => anyhow::anyhow!(document),
+        Err(_) => error,
+    }
 }
 
 async fn run_command(
@@ -261,7 +317,7 @@ async fn certificate_when_ready(
         spinner.clear();
     }
     result.with_context(|| {
-        format!("Timed out waiting for an SSH certificate for virtual machine {id}. Try connecting again shortly.")
+        format!("Virtual machine {id} has not reported its host key yet, so no SSH certificate could be issued. It is probably still starting; try again in a minute.")
     })?
 }
 
@@ -292,18 +348,21 @@ async fn create_machine(
                 || error.downcast_ref::<virtual_machines::NoAnswer>().is_some();
             if json && unconfirmed {
                 // The original error is already a JSON document; replace it with one that says
-                // the outcome is unknown, so automation does not blindly retry.
-                let output = crate::models::api_client::OutputError::Generic(
-                    crate::models::api_client::GenericOutputError {
-                        code: Some("vm.create_unconfirmed".to_owned()),
-                        message: UNCONFIRMED.to_owned(),
-                        status: None,
-                        hint: None,
-                        details: None,
-                    },
-                );
+                // the outcome is unknown, so automation does not blindly retry. Printed here and
+                // returned as already reported, so a Ctrl+C (exit 130) does not replace it with
+                // the plain "Request aborted".
+                let output = OutputError::Generic(GenericOutputError {
+                    code: Some("vm.create_unconfirmed".to_owned()),
+                    message: UNCONFIRMED.to_owned(),
+                    status: None,
+                    hint: None,
+                    details: None,
+                });
                 match output.format_error_output(true) {
-                    Ok(message) => anyhow::anyhow!(message),
+                    Ok(document) => {
+                        eprintln!("{document}");
+                        crate::exit::ReportedFailure::new(crate::telemetry::event::ErrorKind::Network)
+                    }
                     Err(_) => error,
                 }
             } else if json {
@@ -1119,9 +1178,6 @@ async fn prepare_ssh(api_key: &str, id: &str, json: bool, silent: bool) -> Resul
         Ok(issued) => issued,
         Err(error) => {
             // The key stays: another run may be using it, and the next connect reuses it.
-            if format!("{error:#}").contains("host_key_unavailable") {
-                bail!("The machine has not reported its host key yet. It is probably still starting; try again in a minute.");
-            }
             return Err(error);
         }
     };
@@ -1336,7 +1392,7 @@ async fn connect(
         libc::signal(libc::SIGINT, previous_sigint);
     }
     let status = status.context("`ssh` was not found on this machine.")?;
-    restore_terminal(saved_terminal.as_deref());
+    restore_terminal(saved_terminal.as_deref(), status.code() == Some(255));
     if keep_awake_ended && !silent && !json {
         if let Some(limit) = keep_awake {
             eprintln!(
@@ -1435,9 +1491,10 @@ async fn cp(
     };
     let target = prepare_ssh(api_key, &id, json, silent).await?;
     // Relative paths start in the agent's home directory, as with plain scp.
+    // scp splits host from path at the first colon, so an IPv6 address needs brackets.
     let remote = format!(
         "agent@{}:{}",
-        target.ip,
+        scp_host(&target.ip),
         if remote_path.is_empty() {
             "."
         } else {
@@ -1454,6 +1511,15 @@ async fn cp(
             Some(end) => Some(&remote_path[..end]),
             None => None,
         };
+        // A leading `~/` is expanded by scp but would be quoted literally for mkdir; relative
+        // paths already start in the home directory, so drop it.
+        let parent = parent.map(|p| {
+            if p == "~" {
+                ""
+            } else {
+                p.strip_prefix("~/").unwrap_or(p)
+            }
+        });
         if let Some(parent) = parent.filter(|p| !p.is_empty()) {
             let _ = Command::new("ssh")
                 .args(target.options()?)
@@ -1488,7 +1554,7 @@ async fn cp(
     if !status.success() {
         // `terminate` skips destructors: remove this run's session folder first.
         drop(target);
-        crate::exit::Exit::code(status.code().unwrap_or(1)).terminate();
+        crate::exit::Exit::code(exit_code_of(status)).terminate();
     }
     Ok(())
 }
@@ -1521,6 +1587,27 @@ fn save_terminal() -> Option<String> {
     Some(String::new())
 }
 
+/// A child's exit code; one killed by a signal (Ctrl+C) exits 128 + the signal, as a shell does.
+fn exit_code_of(status: std::process::ExitStatus) -> i32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return 128 + signal;
+        }
+    }
+    status.code().unwrap_or(1)
+}
+
+/// The machine's address as scp's host part: an IPv6 address in brackets.
+fn scp_host(ip: &str) -> String {
+    if ip.contains(':') {
+        format!("[{ip}]")
+    } else {
+        ip.to_owned()
+    }
+}
+
 /// `used` as a share of `total`, or `---` when there is no total to divide by.
 fn percent(used: f64, total: f64) -> String {
     if total > 0.0 {
@@ -1535,12 +1622,18 @@ fn percent(used: f64, total: f64) -> String {
 /// and only switch them off when they exit cleanly; a dropped connection leaves them on. Only
 /// for an interactive terminal (`saved` from `save_terminal`); the user's own settings are
 /// restored, not reset.
-fn restore_terminal(saved: Option<&str>) {
+///
+/// Leaving the alternate screen is sent only after a dropped connection (`dropped`): a program
+/// that exited cleanly already left it, and on some terminals leaving it unasked moves the cursor.
+fn restore_terminal(saved: Option<&str>, dropped: bool) {
     use std::io::Write;
     let Some(saved) = saved else { return };
     let mut out = std::io::stdout();
+    if dropped {
+        let _ = out.write_all(b"\x1b[?1049l");
+    }
     let _ = out.write_all(
-        b"\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m",
+        b"\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m",
     );
     let _ = out.flush();
     #[cfg(not(unix))]

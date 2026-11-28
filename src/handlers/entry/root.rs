@@ -1629,7 +1629,10 @@ pub async fn handle_cli(args: Cli) -> Exit {
             Ok(exit) => exit,
             Err(err) => {
                 if REQUEST_ABORTED.load(Ordering::SeqCst) {
-                    eprintln!("{}", "Request aborted".red_if_tty_stderr());
+                    // A handler that already printed its own error (e.g. `--json`) keeps it alone.
+                    if needs_printing(&err) {
+                        eprintln!("{}", "Request aborted".red_if_tty_stderr());
+                    }
                     return Exit::code(130);
                 }
                 if needs_printing(&err) {
