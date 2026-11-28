@@ -288,7 +288,25 @@ async fn create_machine(
             // anyway, and a blind retry could make a second one. On a Ctrl+C the CLI prints only
             // "Request aborted", so the warning is printed here. `--json` keeps its one document.
             const UNCONFIRMED: &str = "Could not confirm whether the virtual machine was created. Check `stashbase vms list` before retrying.";
-            if json {
+            let unconfirmed = virtual_machines::aborted()
+                || error.downcast_ref::<virtual_machines::NoAnswer>().is_some();
+            if json && unconfirmed {
+                // The original error is already a JSON document; replace it with one that says
+                // the outcome is unknown, so automation does not blindly retry.
+                let output = crate::models::api_client::OutputError::Generic(
+                    crate::models::api_client::GenericOutputError {
+                        code: Some("vm.create_unconfirmed".to_owned()),
+                        message: UNCONFIRMED.to_owned(),
+                        status: None,
+                        hint: None,
+                        details: None,
+                    },
+                );
+                match output.format_error_output(true) {
+                    Ok(message) => anyhow::anyhow!(message),
+                    Err(_) => error,
+                }
+            } else if json {
                 error
             } else if virtual_machines::aborted() {
                 eprintln!("{UNCONFIRMED}");
@@ -416,7 +434,7 @@ async fn list(api_key: &str, json: bool, silent: bool) -> Result<()> {
     let machines = machines?;
     if json {
         println!("{}", get_formatted_json_string(&machines, true)?);
-    } else if machines.is_empty() {
+    } else if machines.iter().all(|m| m.state == "deleted") {
         println!("No virtual machines.");
     } else {
         let rows: Vec<MachineRow> = machines
@@ -591,19 +609,19 @@ async fn metrics(api_key: &str, id: &str, json: bool, silent: bool) -> Result<()
         (
             "Memory",
             format!(
-                "{:.1} GB of {:.1} GB ({:.0}%)",
+                "{:.1} GB of {:.1} GB ({})",
                 gb(m.memory_used_bytes),
                 gb(m.memory_total_bytes),
-                m.memory_used_bytes / m.memory_total_bytes * 100.0
+                percent(m.memory_used_bytes, m.memory_total_bytes)
             ),
         ),
         (
             "Disk",
             format!(
-                "{:.1} GB of {:.0} GB ({:.0}%)",
+                "{:.1} GB of {:.0} GB ({})",
                 gb(m.storage_used_bytes),
                 gb(m.storage_total_bytes),
-                m.storage_used_bytes / m.storage_total_bytes * 100.0
+                percent(m.storage_used_bytes, m.storage_total_bytes)
             ),
         ),
         ("Measured", ago),
@@ -1255,6 +1273,9 @@ async fn connect(
             "sh -c 'infocmp \"$TERM\" >/dev/null 2>&1 || TERM=xterm-256color; export TERM; {shell}'"
         ));
     }
+    // Nothing starts after a Ctrl+C during the wait, not even the ssh session it led up to. Checked
+    // before Ctrl+C is ignored and the pinger starts, so an early return leaves neither behind.
+    virtual_machines::ensure_not_aborted(json)?;
     // Ctrl+C belongs to ssh (and the machine); this process ignores it while ssh runs, so it is
     // still here afterwards to restore the terminal. ssh itself gets the default handling back.
     #[cfg(unix)]
@@ -1297,8 +1318,6 @@ async fn connect(
             }
         })
     });
-    // Nothing starts after a Ctrl+C during the wait, not even the ssh session it led up to.
-    virtual_machines::ensure_not_aborted(json)?;
     let saved_terminal = save_terminal();
     // ssh runs on a blocking thread so the pings above keep running meanwhile.
     let status = tokio::task::spawn_blocking(move || ssh.status())
@@ -1335,6 +1354,8 @@ async fn connect(
         );
     }
     if !status.success() {
+        // `terminate` skips destructors: remove this run's session folder first.
+        drop(target);
         // The shell's own exit code is passed through, reported the way every other command does.
         crate::exit::Exit::code(status.code().unwrap_or(1)).terminate();
     }
@@ -1423,6 +1444,8 @@ async fn cp(
             remote_path
         }
     );
+    // Nothing starts after a Ctrl+C during the wait, as with `connect`: not even the mkdir below.
+    virtual_machines::ensure_not_aborted(json)?;
     // scp does not create missing folders on the machine: create the destination's parent first
     // (or the destination itself when it ends with `/`). A failure is left to scp to report.
     if upload {
@@ -1441,7 +1464,7 @@ async fn cp(
                 .status();
         }
     }
-    // Nothing starts after a Ctrl+C during the wait, as with `connect`.
+    // A Ctrl+C during the mkdir still stops before scp.
     virtual_machines::ensure_not_aborted(json)?;
     let mut scp = Command::new("scp");
     scp.args(target.options()?).args(keepalive_defaults());
@@ -1463,6 +1486,8 @@ async fn cp(
         .status()
         .context("`scp` was not found on this machine.")?;
     if !status.success() {
+        // `terminate` skips destructors: remove this run's session folder first.
+        drop(target);
         crate::exit::Exit::code(status.code().unwrap_or(1)).terminate();
     }
     Ok(())
@@ -1494,6 +1519,15 @@ fn save_terminal() -> Option<String> {
     }
     #[cfg(not(unix))]
     Some(String::new())
+}
+
+/// `used` as a share of `total`, or `---` when there is no total to divide by.
+fn percent(used: f64, total: f64) -> String {
+    if total > 0.0 {
+        format!("{:.0}%", used / total * 100.0)
+    } else {
+        "---".to_owned()
+    }
 }
 
 /// Puts the local terminal back the way it was after ssh ends. Programs on the machine (tmux,
