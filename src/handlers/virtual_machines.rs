@@ -1506,21 +1506,7 @@ async fn cp(
     // scp does not create missing folders on the machine: create the destination's parent first
     // (or the destination itself when it ends with `/`). A failure is left to scp to report.
     if upload {
-        let parent = match remote_path.rfind('/') {
-            Some(0) => None,
-            Some(end) => Some(&remote_path[..end]),
-            None => None,
-        };
-        // A leading `~/` is expanded by scp but would be quoted literally for mkdir; relative
-        // paths already start in the home directory, so drop it.
-        let parent = parent.map(|p| {
-            if p == "~" {
-                ""
-            } else {
-                p.strip_prefix("~/").unwrap_or(p)
-            }
-        });
-        if let Some(parent) = parent.filter(|p| !p.is_empty()) {
+        if let Some(parent) = remote_parent(remote_path) {
             let _ = Command::new("ssh")
                 .args(target.options()?)
                 .args(keepalive_defaults())
@@ -1585,6 +1571,23 @@ fn save_terminal() -> Option<String> {
     }
     #[cfg(not(unix))]
     Some(String::new())
+}
+
+/// The folder `vms cp` creates on the machine before an upload to `remote_path`: its parent, or
+/// the path itself when it ends with `/`. None when there is nothing to create (a file in the
+/// home directory or at `/`). A leading `~/` is expanded by scp but would be quoted literally
+/// for mkdir; relative paths already start in the home directory, so it is dropped.
+fn remote_parent(remote_path: &str) -> Option<&str> {
+    let parent = match remote_path.rfind('/') {
+        Some(0) | None => return None,
+        Some(end) => &remote_path[..end],
+    };
+    let parent = if parent == "~" {
+        ""
+    } else {
+        parent.strip_prefix("~/").unwrap_or(parent)
+    };
+    (!parent.is_empty()).then_some(parent)
 }
 
 /// A child's exit code; one killed by a signal (Ctrl+C) exits 128 + the signal, as a shell does.
@@ -1736,6 +1739,7 @@ mod tests {
         can_prepare_ssh, check_ssh_args, connection_args, load_or_create_key, local_operand,
         machine_key_dir, remove_sessions_older_than, split_remote, SshTarget,
     };
+    use super::{error_text, exit_code_of, json_error, remote_parent, scp_host};
     use crate::cmd::virtual_machines::PortForward;
     use std::{path::PathBuf, time::Duration};
 
@@ -1944,6 +1948,86 @@ mod tests {
         let full_dir = machine_key_dir("00000000-0000-0000-0000-000000000001").unwrap();
 
         assert_eq!(public_dir, full_dir);
+    }
+
+    /// An API error as the API layer formats it under `--json`.
+    fn api_document() -> String {
+        r#"{"ok":false,"error":{"code":"conflict","message":"Machine is busy."}}"#.to_owned()
+    }
+
+    fn json_of(error: anyhow::Error) -> serde_json::Value {
+        let text = dialoguer::console::strip_ansi_codes(&error.to_string()).to_string();
+        assert_eq!(
+            error.chain().count(),
+            1,
+            "one document, no cause chain: {text}"
+        );
+        serde_json::from_str(text.trim()).expect("one JSON document")
+    }
+
+    #[test]
+    fn json_errors_from_the_api_pass_through_unchanged() {
+        let error = json_error(anyhow::anyhow!(api_document()));
+        assert_eq!(error.to_string(), api_document());
+    }
+
+    #[test]
+    fn json_errors_from_local_checks_become_one_document() {
+        let document = json_of(json_error(anyhow::anyhow!("Pass --location.")));
+        let text = document.to_string();
+        assert!(text.contains("vm.error"), "{text}");
+        assert!(text.contains("Pass --location."), "{text}");
+        assert!(!text.contains("details"), "{text}");
+    }
+
+    #[test]
+    fn json_errors_with_added_context_keep_the_api_document_under_details() {
+        let error = anyhow::anyhow!(api_document()).context("Turning auto-suspend off failed.");
+        let document = json_of(json_error(error));
+        let text = document.to_string();
+        assert!(text.contains("vm.error"), "{text}");
+        assert!(text.contains("Turning auto-suspend off failed."), "{text}");
+        assert!(!text.contains("Caused by"), "{text}");
+        let details = document
+            .pointer("/error/details")
+            .or_else(|| document.get("details"))
+            .expect("details");
+        assert_eq!(details["error"]["code"], "conflict");
+    }
+
+    #[test]
+    fn text_errors_show_every_cause() {
+        let error = anyhow::Error::new(std::io::Error::other("permission denied"))
+            .context("could not remove SSH credentials");
+        assert_eq!(
+            error_text(&error),
+            "could not remove SSH credentials: permission denied"
+        );
+    }
+
+    #[test]
+    fn ipv6_hosts_get_brackets_for_scp() {
+        assert_eq!(scp_host("203.0.113.5"), "203.0.113.5");
+        assert_eq!(scp_host("2a09:8280:1::5"), "[2a09:8280:1::5]");
+    }
+
+    #[test]
+    fn upload_folders_are_created_where_scp_puts_the_file() {
+        assert_eq!(remote_parent("a.txt"), None);
+        assert_eq!(remote_parent("/a.txt"), None);
+        assert_eq!(remote_parent("~/a.txt"), None);
+        assert_eq!(remote_parent("~/newdir/a.txt"), Some("newdir"));
+        assert_eq!(remote_parent("proj/src/a.txt"), Some("proj/src"));
+        assert_eq!(remote_parent("/srv/data/a.txt"), Some("/srv/data"));
+        assert_eq!(remote_parent("newdir/"), Some("newdir"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_child_killed_by_ctrl_c_exits_130() {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(exit_code_of(std::process::ExitStatus::from_raw(2)), 130);
+        assert_eq!(exit_code_of(std::process::ExitStatus::from_raw(3 << 8)), 3);
     }
 }
 
